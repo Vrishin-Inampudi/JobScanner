@@ -124,13 +124,14 @@ def parse_view(payload: dict, list_key: str) -> list[Posting]:
 _EMBED_PATH = re.compile(r"^/embed/(app\w+)/(shr\w+)/?$")
 
 
-def _airtable_embed_app_id(embed_url: str) -> str:
-    """Only follow links that really are airtable.com embeds, since they come from scraped HTML."""
+def _airtable_embed(embed_url: str) -> tuple[str, str]:
+    """(app id, rebuilt embed URL). Links come from scraped HTML, so only airtable.com embeds are followed."""
     u = urlsplit(embed_url)
     m = _EMBED_PATH.match(u.path)
-    if u.scheme != "https" or u.hostname != "airtable.com" or not m:
+    if u.scheme != "https" or u.netloc != "airtable.com" or not m:
         raise SourceError(f"not an Airtable embed URL: {embed_url}")
-    return m.group(1)
+    app_id, share_id = m.groups()
+    return app_id, f"{AIRTABLE}/embed/{app_id}/{share_id}"
 
 
 _URL_WITH_PARAMS = re.compile(r'urlWithParams:\s*"((?:[^"\\]|\\.)*)"')
@@ -138,7 +139,7 @@ _URL_WITH_PARAMS = re.compile(r'urlWithParams:\s*"((?:[^"\\]|\\.)*)"')
 
 def fetch_view(session: requests.Session, embed_url: str, list_key: str) -> list[Posting]:
     """Read every row of a public Airtable shared view, the same way its embed page does."""
-    app_id = _airtable_embed_app_id(embed_url)
+    app_id, embed_url = _airtable_embed(embed_url)
 
     page = session.get(embed_url, timeout=TIMEOUT)
     page.raise_for_status()

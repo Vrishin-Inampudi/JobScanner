@@ -58,11 +58,19 @@ def test_parse_view_empty_rows_raises():
     "https://airtable.com.evil.com/embed/appX/shrY",
     "https://evil.com/embed/appX/shrY",
     "https://airtable.com/other/embed/appX/shrY",
+    "https://user@airtable.com/embed/appX/shrY",
+    "https://airtable.com:8443/embed/appX/shrY",
+    "https://airtable.com\\@evil.com/embed/appX/shrY",
 ])
 def test_rejects_non_airtable_embed(url):
-    from jobscanner.source import _airtable_embed_app_id
+    from jobscanner.source import _airtable_embed
     with pytest.raises(SourceError):
-        _airtable_embed_app_id(url)
+        _airtable_embed(url)
+
+
+def test_embed_url_is_rebuilt():
+    from jobscanner.source import _airtable_embed
+    assert _airtable_embed("https://airtable.com/embed/appX/shrY/") == ("appX", "https://airtable.com/embed/appX/shrY")
 
 
 def test_rejects_off_host_data_path():
