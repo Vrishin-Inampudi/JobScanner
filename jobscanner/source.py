@@ -7,6 +7,8 @@ import json
 import re
 from dataclasses import dataclass
 
+from urllib.parse import urljoin, urlsplit
+
 import requests
 
 SITE_URL = "https://www.intern-list.com/"
@@ -119,15 +121,24 @@ def parse_view(payload: dict, list_key: str) -> list[Posting]:
     return postings
 
 
+_EMBED_PATH = re.compile(r"^/embed/(app\w+)/(shr\w+)/?$")
+
+
+def _airtable_embed_app_id(embed_url: str) -> str:
+    """Only follow links that really are airtable.com embeds, since they come from scraped HTML."""
+    u = urlsplit(embed_url)
+    m = _EMBED_PATH.match(u.path)
+    if u.scheme != "https" or u.hostname != "airtable.com" or not m:
+        raise SourceError(f"not an Airtable embed URL: {embed_url}")
+    return m.group(1)
+
+
 _URL_WITH_PARAMS = re.compile(r'urlWithParams:\s*"((?:[^"\\]|\\.)*)"')
 
 
 def fetch_view(session: requests.Session, embed_url: str, list_key: str) -> list[Posting]:
     """Read every row of a public Airtable shared view, the same way its embed page does."""
-    m = re.search(r"/embed/(app\w+)/(shr\w+)", embed_url)
-    if not m:
-        raise SourceError(f"not an Airtable embed URL: {embed_url}")
-    app_id = m.group(1)
+    app_id = _airtable_embed_app_id(embed_url)
 
     page = session.get(embed_url, timeout=TIMEOUT)
     page.raise_for_status()
@@ -135,9 +146,12 @@ def fetch_view(session: requests.Session, embed_url: str, list_key: str) -> list
     if not found:
         raise SourceError(f"could not find data URL in Airtable page for list '{list_key}'")
     data_path = json.loads(f'"{found.group(1)}"')  # undo JS string escaping
+    data_url = urljoin(AIRTABLE, data_path)
+    if not data_path.startswith("/") or data_path.startswith("//") or urlsplit(data_url).hostname != "airtable.com":
+        raise SourceError(f"unexpected Airtable data URL for list '{list_key}': {data_path[:100]}")
 
     resp = session.get(
-        AIRTABLE + data_path,
+        data_url,
         headers={
             "x-airtable-application-id": app_id,
             "x-requested-with": "XMLHttpRequest",

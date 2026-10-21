@@ -51,3 +51,31 @@ def test_parse_view_empty_rows_raises():
     payload["data"]["table"]["rows"] = []
     with pytest.raises(SourceError):
         parse_view(payload, "cs")
+
+
+@pytest.mark.parametrize("url", [
+    "http://airtable.com/embed/appX/shrY",
+    "https://airtable.com.evil.com/embed/appX/shrY",
+    "https://evil.com/embed/appX/shrY",
+    "https://airtable.com/other/embed/appX/shrY",
+])
+def test_rejects_non_airtable_embed(url):
+    from jobscanner.source import _airtable_embed_app_id
+    with pytest.raises(SourceError):
+        _airtable_embed_app_id(url)
+
+
+def test_rejects_off_host_data_path():
+    from jobscanner.source import fetch_view
+
+    class Resp:
+        text = 'urlWithParams: "@evil.com\\u002Fv0.3\\u002Fview"'
+        def raise_for_status(self): pass
+
+    class Session:
+        def get(self, url, **kw):
+            assert url == "https://airtable.com/embed/appX/shrY"  # never reaches the data request
+            return Resp()
+
+    with pytest.raises(SourceError, match="unexpected Airtable data URL"):
+        fetch_view(Session(), "https://airtable.com/embed/appX/shrY", "cs")
