@@ -1,0 +1,40 @@
+# What to watch on https://www.intern-list.com/ and what counts as worth an email.
+#
+# lists: the site's short names (the ?k= value in its URLs). US lists only.
+#   cs   = Cybersecurity            swe = Software Engineering
+#   eng  = Engineering and Development   aiml = Machine Learning and AI
+#   da   = Data Analysis            pm  = Product Management
+#   (run `python -m jobscanner --show-lists` to see them all)
+# Optional per list: title_include (keep only titles containing any of these)
+# and title_exclude (drop titles containing any of these). Case-insensitive.
+
+lists:
+  - key: cs
+  - key: swe
+    title_include: [network engineer, networking, network security, network software, network infrastructure, noc]
+  - key: eng
+    title_include: [network engineer, networking, network security, network infrastructure, noc]
+    title_exclude: [electrical, transmission, distribution, power, utility]
+
+# any = one criterion below is enough; all = every criterion must hold.
+match: any
+
+criteria:
+  min_hourly_pay: 35            # top of posted range; yearly pay / 2080
+  locations: [CA, MA, NY, CT]   # state codes
+  large_company_min_size: 10000 # employees, from the site's size buckets
+  priority_companies:           # ranked first; also count as "large company"
+    - Palo Alto Networks
+    - CrowdStrike
+    - Fortinet
+    - Zscaler
+    - Cisco
+    - Okta
+    - Cloudflare
+    - SentinelOne
+    - Apple
+    - NVIDIA
+    - Meta
+    - Google
+    - Microsoft
+    - Amazon
