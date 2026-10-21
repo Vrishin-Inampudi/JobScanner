@@ -34,7 +34,7 @@ def run(
     fetched: dict[str, list[source.Posting]] = {}
     failures: list[str] = []
     matches: list[Match] = []
-    batch_urls: set[str] = set()
+    batch_keys: set[str] = set()
 
     for spec in cfg.lists:
         if spec.key not in available:
@@ -53,12 +53,12 @@ def run(
             continue
         kept = 0
         for p in new:
-            if not spec.wants(p.title) or state.was_emailed(p.apply_url) or p.apply_url in batch_urls:
+            if not spec.wants(p.title) or state.was_emailed(p.job_key) or p.job_key in batch_keys:
                 continue
             m = evaluate(p, cfg.criteria)
             if m:
                 matches.append(m)
-                batch_urls.add(p.apply_url)
+                batch_keys.add(p.job_key)
                 kept += 1
         log.info("list '%s': %d postings, %d new, %d qualify", spec.key, len(postings), len(new), kept)
 
@@ -78,7 +78,7 @@ def run(
     else:
         for key, postings in fetched.items():
             state.mark_seen(key, postings)
-        state.mark_emailed([m.posting.apply_url for m in matches])
+        state.mark_emailed([m.posting.job_key for m in matches])
         state.save(state_path)
 
     for f in failures:

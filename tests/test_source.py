@@ -87,3 +87,12 @@ def test_rejects_off_host_data_path():
 
     with pytest.raises(SourceError, match="unexpected Airtable data URL"):
         fetch_view(Session(), "https://airtable.com/embed/appX/shrY", "cs")
+
+
+def test_job_key_ignores_tracking_query():
+    from .test_filters import posting
+    a = posting(list_key="cs", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Cyber Security")
+    b = posting(list_key="eng", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Engineering")
+    assert a.job_key == b.job_key == "jobright.ai/jobs/info/abc"
+    c = posting(apply_url="", company="Acme", title="Intern", location="Austin, TX")
+    assert c.job_key == "acme|intern|austin, tx"

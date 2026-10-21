@@ -42,6 +42,14 @@ class Posting:
     def uid(self) -> str:
         return f"{self.list_key}:{self.row_id}"
 
+    @property
+    def job_key(self) -> str:
+        """Stable identity across lists and table rebuilds (the site regenerates Airtable row ids)."""
+        if self.apply_url:
+            u = urlsplit(self.apply_url)
+            return f"{u.netloc.lower()}{u.path.rstrip('/')}"
+        return "|".join(x.strip().lower() for x in (self.company, self.title, self.location))
+
 
 def new_session() -> requests.Session:
     s = requests.Session()
