@@ -127,8 +127,12 @@ Sort the hour's qualifying postings by, in order:
 
 ## Dedup and state
 
-- Identity = Airtable row id (`rec...`), namespaced by list key. The same job can
-  appear in two lists; also dedupe within one email by Apply URL.
+- Identity = the Apply URL without its query string (falls back to
+  company|title|location). **Not** the Airtable row id: the site rebuilds its tables
+  several times a day and every row gets a new id (found in production 2026-10-21,
+  when a rebuild re-sent every match). Stripping the query (`utm_campaign` differs per
+  list) also dedupes the same job across lists. The state file is versioned; an older
+  version is re-baselined silently.
 - State file `state/seen.json` committed back to the repo by the workflow after each
   successful run.
 - **Every fetched row is recorded as seen**, whether or not it qualified. Config
