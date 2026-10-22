@@ -9,7 +9,7 @@ from pathlib import Path
 from .source import Posting
 
 # Bump when the meaning of stored keys changes; older files are re-baselined silently.
-VERSION = 3
+VERSION = 4
 
 # Jobs that vanish from a list are forgotten this long after they were first seen,
 # so a job that briefly drops out of a view isn't re-sent when it comes back.

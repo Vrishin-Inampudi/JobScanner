@@ -78,3 +78,11 @@ def test_relinked_job_already_emailed_from_other_list():
     s.mark_emailed([a])
     assert s.was_emailed(posting(row_id="b", company="Adobe", title="Security Intern"))
     assert not s.was_emailed(posting(row_id="c", company="Adobe", title="Other Intern"))
+
+
+def test_same_job_relisted_with_merged_locations_is_not_new():
+    s = State()
+    s.mark_seen("cs", [posting(row_id="old", company="Adobe", title="Security Intern", location="San Jose, CA, United States")])
+    merged = posting(row_id="new", company="Adobe", title="Security Intern",
+                     location="Multi Location\nLehi, UT, United States\nSan Jose, CA, United States")
+    assert s.diff("cs", [merged]) == ([], False)

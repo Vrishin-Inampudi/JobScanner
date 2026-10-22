@@ -46,11 +46,12 @@ class Posting:
     def job_keys(self) -> tuple[str, ...]:
         """Identities that survive the site's table rebuilds.
 
-        The site regenerates Airtable row ids on every rebuild and sometimes gives an
-        existing job a new apply link, so a job counts as seen if either its link (minus
-        tracking query) or its company|title|location has been seen.
+        The site regenerates Airtable row ids on every rebuild and sometimes re-lists an
+        existing job with a new apply link and a rewritten location (e.g. merged into
+        "Multi Location ..."), so a job counts as seen if either its link (minus tracking
+        query) or its company|title has been seen.
         """
-        fingerprint = "|".join(" ".join(x.lower().split()) for x in (self.company, self.title, self.location))
+        fingerprint = "|".join(" ".join(x.lower().split()) for x in (self.company, self.title))
         if not self.apply_url:
             return (fingerprint,)
         u = urlsplit(self.apply_url)

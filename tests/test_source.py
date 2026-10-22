@@ -95,6 +95,6 @@ def test_job_keys_ignore_tracking_query():
     b = posting(list_key="eng", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Engineering")
     assert a.job_keys == b.job_keys
     assert a.job_keys[0] == "jobright.ai/jobs/info/abc"
-    assert a.job_keys[1] == "acme|security intern|austin, tx, united states"
+    assert a.job_keys[1] == "acme|security intern"
     c = posting(apply_url="", company="Acme", title="Intern  ", location="Austin, TX")
-    assert c.job_keys == ("acme|intern|austin, tx",)
+    assert c.job_keys == ("acme|intern",)
