@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "23 * * * *"  # hourly; off the top of the hour, when GitHub often delays or skips runs
   workflow_dispatch:
+    inputs:
+      test:
+        description: "Send a [Test] email of matches from the last 24h (doesn't change what's been seen)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write         # to commit state/seen.json
@@ -24,7 +29,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Check for new internships
-        run: python -m jobscanner
+        run: python -m jobscanner ${{ inputs.test && '--test' || '' }}
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

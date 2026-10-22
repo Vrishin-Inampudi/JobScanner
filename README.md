@@ -118,6 +118,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requiremen
 .venv/bin/python -m pytest -q               # tests
 ```
 
+To get a sample email, go to *Actions → Internship alerts → Run workflow* and tick
+**test**. It emails matches from the last 24 hours with "[Test]" in the subject and
+doesn't change what counts as already sent.
+
 `--dry-run` behaves like a real run, but it prints the email instead of sending it and
 doesn't save state.
 

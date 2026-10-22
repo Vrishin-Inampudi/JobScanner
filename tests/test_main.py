@@ -157,3 +157,15 @@ def test_pretty_location():
 def test_send_requires_secrets():
     with pytest.raises(EmailConfigError):
         send("s", "t", "h", env={})
+
+
+def test_test_email_sends_last_day_without_touching_state(site, paths):
+    site["cs"] = [posting("recent", company="NVIDIA"), posting("today", company="NVIDIA", minutes_ago=20 * 60)]
+    go(paths, Outbox())  # normal run emails "recent" and records it
+    state_before = Path(paths[1]).read_text()
+
+    outbox = Outbox()
+    go(paths, outbox, test=True)
+    assert len(outbox) == 1 and outbox[0][0].startswith("[Test] 🎯 2 new internships")
+    assert "jobs/info/recent" in outbox[0][1] and "jobs/info/today" in outbox[0][1]
+    assert Path(paths[1]).read_text() == state_before
