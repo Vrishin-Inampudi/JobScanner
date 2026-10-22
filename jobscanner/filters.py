@@ -140,6 +140,7 @@ def rank(matches: list[Match]) -> list[Match]:
             -(m.hourly or 0),
             m.state is None,
             -m.size,
+            -m.posting.posted_at.timestamp() if m.posting.posted_at else 0,
             _neg_date(m.posting.date),
         )
     return sorted(matches, key=key)

@@ -38,6 +38,18 @@ at a different role (SWE, EE, …) by editing one config file, with no code chan
   workflow run (GitHub then emails the repo owner).
 - Any personal email address or password in the repo.
 
+## Data source — update 2026-10-22
+
+On 2026-10-22 intern-list.com replaced its Airtable embeds with an iframe from
+jobright.ai (`https://jobright.ai/minisites-jobs/intern/us/<slug>?embed=true`). The app
+now reads that feed directly: `POST https://jobright.ai/swan/mini-sites/list?position=N&count=50`
+with body `{"category": "intern:us:<slug>"}` (slug from the site's `data-job-path`).
+Jobs come newest first with a stable `jobId` and a `postedAt` timestamp, which is US
+Pacific wall-clock time encoded as if it were UTC (the app converts it, and falls back to
+UTC if converted times land in the future). Vrishin asked for each hourly email to hold
+only jobs posted since the last run, so `max_age_hours` (2, for slack on late runs)
+replaced the date-based filter. The Airtable notes below are historical.
+
 ## Data source (verified 2026-10-21)
 
 - `https://www.intern-list.com/` contains `<h2 data-job-path="/us/<slug>"

@@ -1,0 +1,94 @@
+{
+ "success": true,
+ "errorCode": 10000,
+ "errorMsg": null,
+ "result": {
+  "jobList": [
+   {
+    "jobId": "6ad953c2b0725dc268ddbf33",
+    "tabCategory": [
+     "intern:us:cyber_security",
+     "intern:us:swe"
+    ],
+    "properties": {
+     "title": "Software Engineer: Security & Identity Intern Opportunities for University Students, Cambridge",
+     "company": "Microsoft",
+     "location": "Cambridge, MA",
+     "salary": "$5690-$11210/mon",
+     "workModel": "On Site",
+     "industry": [
+      "Cyber Security",
+      "Cloud Computing"
+     ],
+     "companySize": "10000+",
+     "qualifications": "",
+     "expLevel": null,
+     "jobFunction": null,
+     "h1bSponsored": "Not Sure",
+     "isNewGrad": false,
+     "roleType": null,
+     "hireTime": "",
+     "graduateTime": ""
+    },
+    "postedAt": 1792608805000
+   },
+   {
+    "jobId": "6ad9459b67bec1d0d9c8526f",
+    "tabCategory": [
+     "intern:us:cyber_security",
+     "intern:us:swe"
+    ],
+    "properties": {
+     "title": "Information Security Engineer Undergraduate Intern",
+     "company": "Intel",
+     "location": "Folsom, CA",
+     "salary": "$75898-$75902/yr",
+     "workModel": "Hybrid",
+     "industry": [
+      "Semiconductor",
+      "Cyber Security"
+     ],
+     "companySize": "10000+",
+     "qualifications": "",
+     "expLevel": null,
+     "jobFunction": null,
+     "h1bSponsored": "No",
+     "isNewGrad": false,
+     "roleType": null,
+     "hireTime": "2027-January",
+     "graduateTime": ""
+    },
+    "postedAt": 1792607339000
+   },
+   {
+    "jobId": "6ad96174b0725dc268ddc478",
+    "tabCategory": [
+     "intern:us:cyber_security",
+     "intern:us:swe"
+    ],
+    "properties": {
+     "title": "Spring 2027 - IEF - Electronic System Engineering (Cyber Security) Collegiate Intern Job Details | Gulfstream Aerospace Corporation",
+     "company": "Gulfstream Aerospace",
+     "location": "Savannah, GA",
+     "salary": "N/A",
+     "workModel": "On Site",
+     "industry": [
+      "Aerospace",
+      "Cyber Security"
+     ],
+     "companySize": "10000+",
+     "qualifications": "",
+     "expLevel": null,
+     "jobFunction": null,
+     "h1bSponsored": "No",
+     "isNewGrad": false,
+     "roleType": null,
+     "hireTime": "2027-January",
+     "graduateTime": ""
+    },
+    "postedAt": 1792605956000
+   }
+  ],
+  "total": 700
+ }
+}

@@ -5,6 +5,7 @@
 #   eng  = Engineering and Development   aiml = Machine Learning and AI
 #   da   = Data Analysis            pm  = Product Management
 #   (run `python -m jobscanner --show-lists` to see them all)
+# Jobs come from jobright.ai, which powers the site's job tables.
 # Optional per list: title_include (keep only titles containing any of these)
 # and title_exclude (drop titles containing any of these). Case-insensitive.
 
@@ -16,9 +17,10 @@ lists:
     title_include: [network engineer, networking, network security, network infrastructure, noc]
     title_exclude: [electrical, transmission, distribution, power, utility]
 
-# true = only email postings dated on the list's most recent date (i.e. today's batch),
-# ignoring older postings the site re-lists. false = any posting new to the list.
-only_latest_date: true
+# Only consider jobs posted within this many hours. Each email still only contains jobs
+# not emailed before, so with hourly runs it's effectively "posted since the last run";
+# the extra hour is slack for runs that start late.
+max_age_hours: 2
 
 # any = one criterion below is enough; all = every criterion must hold.
 match: any

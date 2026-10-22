@@ -10,10 +10,9 @@ def posting(row_id="rec1", **kw):
     return _posting(row_id=row_id, **kw)
 
 
-def test_unknown_list_is_baselined(tmp_path):
+def test_unknown_list_has_nothing_seen(tmp_path):
     s = State.load(tmp_path / "missing.json")
-    new, baselined = s.diff("cs", [posting(row_id="a")])
-    assert (new, baselined) == ([], True)
+    assert [p.row_id for p in s.diff("cs", [posting(row_id="a")])] == ["a"]
 
 
 def test_diff_returns_only_new_rows(tmp_path):
@@ -23,8 +22,8 @@ def test_diff_returns_only_new_rows(tmp_path):
     s.save(path, today="2026-10-21")
 
     s = State.load(path)
-    new, baselined = s.diff("cs", [posting(row_id="a"), posting(row_id="b")])
-    assert [p.row_id for p in new] == ["b"] and baselined is False
+    new = s.diff("cs", [posting(row_id="a"), posting(row_id="b")])
+    assert [p.row_id for p in new] == ["b"]
 
 
 def test_first_seen_date_is_kept():
@@ -40,7 +39,7 @@ def test_vanished_rows_forgotten_after_90_days():
     s.mark_seen("cs", [posting(row_id="recent")], today="2026-10-01")
     s.mark_seen("cs", [], today="2026-10-21")
     assert set(s.lists["cs"].values()) == {"2026-10-01"}
-    assert s.diff("cs", [posting(row_id="recent")]) == ([], False)
+    assert s.diff("cs", [posting(row_id="recent")]) == []
     assert "cs" in s.lists  # empty-ish list still counts as known, no re-baseline
 
 
@@ -55,21 +54,20 @@ def test_table_rebuild_with_new_row_ids_is_not_new():
     s = State()
     s.mark_seen("cs", [posting(row_id="recOLD", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Cyber")])
     rebuilt = [posting(row_id="recNEW", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Cyber")]
-    assert s.diff("cs", rebuilt) == ([], False)
+    assert s.diff("cs", rebuilt) == []
 
 
-def test_old_format_state_is_rebaselined(tmp_path):
+def test_old_format_state_is_ignored(tmp_path):
     p = tmp_path / "seen.json"
     p.write_text('{"lists": {"cs": {"recOLD": "2026-10-21"}}, "emailed_urls": {}}')  # v1: row ids
-    new, baselined = State.load(p).diff("cs", [posting(row_id="recNEW")])
-    assert (new, baselined) == ([], True)
+    assert State.load(p).lists == {}
 
 
 def test_same_job_with_new_link_is_not_new():
     s = State()
     s.mark_seen("cs", [posting(row_id="old", company="Adobe", title="Security Intern", location="San Jose, CA")])
     relinked = posting(row_id="new", company="Adobe", title="Security Intern", location="San Jose, CA")
-    assert s.diff("cs", [relinked]) == ([], False)
+    assert s.diff("cs", [relinked]) == []
 
 
 def test_relinked_job_already_emailed_from_other_list():
@@ -85,4 +83,4 @@ def test_same_job_relisted_with_merged_locations_is_not_new():
     s.mark_seen("cs", [posting(row_id="old", company="Adobe", title="Security Intern", location="San Jose, CA, United States")])
     merged = posting(row_id="new", company="Adobe", title="Security Intern",
                      location="Multi Location\nLehi, UT, United States\nSan Jose, CA, United States")
-    assert s.diff("cs", [merged]) == ([], False)
+    assert s.diff("cs", [merged]) == []

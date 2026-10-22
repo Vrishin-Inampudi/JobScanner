@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from . import emailer, source
@@ -25,10 +26,13 @@ def run(
     preview: bool = False,
     session=None,
     sender: Callable[[str, str, str], None] = emailer.send,
+    now: datetime | None = None,
 ) -> int:
     cfg = load_config(config_path)
     state = State.load(state_path)
     session = session or source.new_session()
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(hours=cfg.max_age_hours)
     available = source.fetch_list_map(session)
 
     fetched: dict[str, list[source.Posting]] = {}
@@ -41,34 +45,29 @@ def run(
             failures.append(f"unknown list '{spec.key}' (available: {', '.join(sorted(available))})")
             continue
         try:
-            postings = source.fetch_view(session, available[spec.key], spec.key)
+            postings = source.fetch_jobs(session, available[spec.key], spec.key, since, now=now)
         except Exception as e:  # keep going so other lists still get checked
             failures.append(f"list '{spec.key}': {e}")
             continue
         fetched[spec.key] = postings
 
-        new, baselined = (postings, False) if preview else state.diff(spec.key, postings)
-        if baselined:
-            log.info("list '%s': first run, recorded %d existing postings without emailing", spec.key, len(postings))
-            continue
-        if cfg.only_latest_date:
-            latest = max((p.date for p in postings), default="")
-            new = [p for p in new if p.date == latest]
-            log.info("list '%s': only postings dated %s", spec.key, latest)
+        new = postings if preview else state.diff(spec.key, postings)
         kept = 0
         for p in new:
-            if not spec.wants(p.title) or state.was_emailed(p) or any(k in batch_keys for k in p.job_keys):
+            already_sent = not preview and state.was_emailed(p)
+            if not spec.wants(p.title) or already_sent or any(k in batch_keys for k in p.job_keys):
                 continue
             m = evaluate(p, cfg.criteria)
             if m:
                 matches.append(m)
                 batch_keys.update(p.job_keys)
                 kept += 1
-        log.info("list '%s': %d postings, %d new, %d qualify", spec.key, len(postings), len(new), kept)
+        log.info("list '%s': %d posted in the last %gh, %d new, %d qualify",
+                 spec.key, len(postings), cfg.max_age_hours, len(new), kept)
 
     matches = rank(matches)
     if matches:
-        subject, text, html_body = emailer.render(matches)
+        subject, text, html_body = emailer.render(matches, now=now)
         if dry_run:
             print(f"Subject: {subject}\n\n{text}")
         else:
@@ -95,14 +94,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--state", default="state/seen.json")
     ap.add_argument("--dry-run", action="store_true", help="print the email instead of sending; don't save state")
-    ap.add_argument("--preview", action="store_true", help="dry run that treats every current posting as new")
+    ap.add_argument("--preview", action="store_true", help="dry run that ignores what was already seen or emailed")
     ap.add_argument("--show-lists", action="store_true", help="print the list keys intern-list.com offers")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     if args.show_lists:
-        for key, url in sorted(source.fetch_list_map(source.new_session()).items()):
-            print(f"{key:8} {url}")
+        for key, category in sorted(source.fetch_list_map(source.new_session()).items()):
+            print(f"{key:8} {category}")
         return 0
     try:
         return run(args.config, args.state, dry_run=args.dry_run or args.preview, preview=args.preview)

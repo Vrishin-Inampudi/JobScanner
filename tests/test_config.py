@@ -13,7 +13,7 @@ def test_repo_config_loads():
     assert cfg.criteria.min_hourly_pay == 35
     assert cfg.criteria.locations == ["CA", "MA", "NY", "CT"]
     assert "NVIDIA" in cfg.criteria.priority_companies
-    assert cfg.only_latest_date is True
+    assert cfg.max_age_hours == 2
 
 
 def test_list_spec_wants():

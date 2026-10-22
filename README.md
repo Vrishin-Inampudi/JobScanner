@@ -36,9 +36,8 @@ then bigger companies, then the newest postings.
 
 4. **Enable Actions.** Open the *Actions* tab and click "I understand… enable them".
    Forks start with Actions turned off.
-5. **Run it once.** Go to *Actions → Internship alerts → Run workflow*. The first run
-   records every existing posting without emailing, so you don't get hundreds of
-   messages. Emails start once new postings appear.
+5. **Run it once.** Go to *Actions → Internship alerts → Run workflow*. It emails any
+   matching jobs posted in the last `max_age_hours`, then only newer ones after that.
 
 GitHub emails you when a run fails, for example if intern-list.com changes its
 layout. So if it breaks, you'll hear about it instead of it going quiet.
@@ -97,9 +96,9 @@ criteria:
   and `aiml` is ML/AI. Run `python -m jobscanner --show-lists` to see all of them.
   `title_include` and `title_exclude` keep or drop titles that contain any of the
   given words. They're case-insensitive.
-- **`only_latest_date`**: `true` emails only postings dated on the list's most recent
-  date (today's batch), skipping older postings the site re-lists. Use `false` to get
-  any posting that's new to the list.
+- **`max_age_hours`**: only jobs posted within this many hours are considered. Jobs are
+  never emailed twice, so with hourly runs each email holds what was posted since the
+  last run. The default of `2` leaves slack for runs that start late.
 - **`match`**: `any` means one criterion is enough. `all` means every criterion must
   hold. Under `all`, postings without a listed salary fail the pay check.
 - **`min_hourly_pay`**: compared against the top of the posted range. Yearly pay is
@@ -109,9 +108,7 @@ criteria:
   Matching tolerates suffixes like "Inc." or "Corporation", but "Apple Bank" won't
   match "Apple".
 
-Changing the config only affects postings that appear **after** the change. Postings
-already on the site aren't sent as a catch-up. A newly added list is recorded silently
-on its first run, just like the initial setup.
+Jobs already emailed are never sent again, even if you change the config.
 
 ## Run it locally
 
@@ -126,14 +123,15 @@ doesn't save state.
 
 ## How it works
 
-intern-list.com shows each category as a public Airtable view.
-[`jobscanner/source.py`](jobscanner/source.py) reads the category links from the site
-and loads each view's rows, the same way the embedded table does in your browser. No
-Airtable account or API key is needed.
+intern-list.com names its lists and shows each one in a table embedded from
+jobright.ai. [`jobscanner/source.py`](jobscanner/source.py) reads the list names from
+the site, then reads each list's newest jobs from the same public jobright.ai feed the
+table uses, page by page until it passes `max_age_hours`. No account or API key is
+needed.
 
-The posting IDs it has already seen are stored in `state/seen.json`, which the workflow
-commits back after each run. If an email fails to send, state isn't saved, so the next
-hour retries.
+The jobs it has already seen and emailed are stored in `state/seen.json`, which the
+workflow commits back after each run. If an email fails to send, state isn't saved, so
+the next hour retries.
 
 Not affiliated with intern-list.com. Be kind to their servers: hourly is plenty.
 

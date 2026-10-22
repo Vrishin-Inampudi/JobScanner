@@ -27,8 +27,7 @@ def _cutoff(today: str | None) -> str:
 class State:
     """``lists`` maps list key -> {job key: first-seen date}; ``emailed`` maps job key -> date sent.
 
-    Jobs are identified by ``Posting.job_keys``, not Airtable row ids, because intern-list.com
-    rebuilds its tables several times a day; a job is seen if any of its keys is.
+    Jobs are identified by ``Posting.job_keys``; a job is seen if any of its keys is.
     """
 
     def __init__(self, lists: dict[str, dict[str, str]] | None = None, emailed: dict[str, str] | None = None):
@@ -45,12 +44,10 @@ class State:
             return cls()
         return cls(raw.get("lists"), raw.get("emailed"))
 
-    def diff(self, list_key: str, postings: list[Posting]) -> tuple[list[Posting], bool]:
-        """Postings not seen before. A list with no history is baselined (nothing new)."""
-        if list_key not in self.lists:
-            return [], True
-        seen = self.lists[list_key]
-        return [p for p in postings if not any(k in seen for k in p.job_keys)], False
+    def diff(self, list_key: str, postings: list[Posting]) -> list[Posting]:
+        """Postings not seen before in this list."""
+        seen = self.lists.get(list_key, {})
+        return [p for p in postings if not any(k in seen for k in p.job_keys)]
 
     def mark_seen(self, list_key: str, postings: list[Posting], today: str | None = None) -> None:
         """Record the list's current jobs; forget old jobs that are no longer listed."""
