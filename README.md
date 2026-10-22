@@ -99,6 +99,9 @@ criteria:
 - **`max_age_hours`**: only jobs posted within this many hours are considered. Jobs are
   never emailed twice, so with hourly runs each email holds what was posted since the
   last run. The default of `2` leaves slack for runs that start late.
+- **`email_when_empty`**: `true` also sends a short "Hi, nothing has been posted!" email
+  on hours with no new matches, so you know it checked. It's skipped if a list failed
+  to load. Defaults to `false`.
 - **`match`**: `any` means one criterion is enough. `all` means every criterion must
   hold. Under `all`, postings without a listed salary fail the pay check.
 - **`min_hourly_pay`**: compared against the top of the posted range. Yearly pay is

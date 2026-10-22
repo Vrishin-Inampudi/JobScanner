@@ -22,6 +22,9 @@ lists:
 # the extra hour is slack for runs that start late.
 max_age_hours: 2
 
+# true = also send a short "Hi, nothing has been posted!" email on hours with no new matches.
+email_when_empty: true
+
 # any = one criterion below is enough; all = every criterion must hold.
 match: any
 

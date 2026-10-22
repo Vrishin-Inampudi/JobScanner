@@ -169,3 +169,30 @@ def test_test_email_sends_last_day_without_touching_state(site, paths):
     assert len(outbox) == 1 and outbox[0][0].startswith("[Test] 🎯 2 new internships")
     assert "jobs/info/recent" in outbox[0][1] and "jobs/info/today" in outbox[0][1]
     assert Path(paths[1]).read_text() == state_before
+
+
+def test_empty_hour_email_when_enabled(site, paths):
+    cfg, state = paths
+    Path(cfg).write_text(CONFIG + "email_when_empty: true\n")
+    site["cs"] = [posting("boring", title="Help Desk Intern")]  # posted, but doesn't qualify
+    outbox = Outbox()
+    assert run(cfg, state, session=object(), sender=outbox, now=NOW) == 0
+    assert len(outbox) == 1
+    subject, text, html = outbox[0]
+    assert subject.startswith("Nothing new this hour")
+    assert "Hi, nothing has been posted!" in html and "Check back in an hour." in html
+    assert "Scanned 1 recent posting across 2 lists" in text
+
+
+def test_no_empty_email_when_a_list_failed(site, paths):
+    cfg, state = paths
+    Path(cfg).write_text(CONFIG.replace("- key: swe", "- key: nope") + "email_when_empty: true\n")
+    outbox = Outbox()
+    assert run(cfg, state, session=object(), sender=outbox, now=NOW) == 1
+    assert outbox == []
+
+
+def test_no_empty_email_by_default(site, paths):
+    outbox = Outbox()
+    go(paths, outbox)
+    assert outbox == []

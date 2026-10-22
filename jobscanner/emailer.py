@@ -117,16 +117,15 @@ def _legend_dot(color: str, label: str) -> str:
             f'<span style="vertical-align:middle">{label}</span></span>')
 
 
-def _html(matches: list[Match], now: datetime) -> str:
-    noun = "internship" if len(matches) == 1 else "internships"
+def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool) -> str:
+    """The shared dark shell: header with today badge, headline, body rows, footer."""
     local = now.astimezone(DISPLAY_TZ)
-    preheader = html.escape(", ".join(dict.fromkeys(m.posting.company for m in matches)))
-    events = "".join(_event(m, now) for m in matches)
+    key = f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}" if legend else ""
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>JobScanner</title></head>
 <body style="margin:0;padding:0;background:{BG}" bgcolor="{BG}">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0">{preheader}</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{html.escape(preheader)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{BG}" style="background:{BG}">
 <tr><td align="center" style="padding:24px 12px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px">
@@ -139,13 +138,13 @@ def _html(matches: list[Match], now: datetime) -> str:
       </tr></table>
     </td></tr>
     <tr><td style="padding:6px 2px 4px;font:700 30px/1.2 {SANS};color:{TEXT};letter-spacing:-0.4px">
-      {len(matches)} new {noun}</td></tr>
+      {html.escape(headline)}</td></tr>
     <tr><td style="padding:0 2px 16px;font:400 14px/1.5 {SANS};color:{MUTED};border-bottom:1px solid {LINE}">
-      Posted since your last check &middot; best first</td></tr>
+      {html.escape(sub)}</td></tr>
     <tr><td style="height:16px;line-height:16px;font-size:0">&nbsp;</td></tr>
-    {events}
+    {body}
     <tr><td style="padding:14px 2px 0;border-top:1px solid {LINE};font:400 12px/1.6 {SANS};color:{MUTED}">
-      {_legend_dot(TOP["bar"], "Top company")}{_legend_dot(OTHER["bar"], "Other match")}
+      {key}
       <div style="margin-top:8px;color:{FAINT}">Checked hourly from intern-list.com &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
     </td></tr>
   </table>
@@ -154,9 +153,43 @@ def _html(matches: list[Match], now: datetime) -> str:
 </body></html>"""
 
 
+def _html(matches: list[Match], now: datetime) -> str:
+    noun = "internship" if len(matches) == 1 else "internships"
+    return _page(
+        now,
+        preheader=", ".join(dict.fromkeys(m.posting.company for m in matches)),
+        headline=f"{len(matches)} new {noun}",
+        sub="Posted since your last check · best first",
+        body="".join(_event(m, now) for m in matches),
+        legend=True,
+    )
+
+
 def render(matches: list[Match], now: datetime | None = None) -> tuple[str, str, str]:
     now = now or datetime.now(timezone.utc)
     return _subject(matches), _text(matches, now), _html(matches, now)
+
+
+EMPTY_HEADLINE = "Hi, nothing has been posted!"
+EMPTY_SUB = "Check back in an hour."
+
+
+def render_empty(scanned: int, lists: int, now: datetime | None = None) -> tuple[str, str, str]:
+    """The 'nothing new this hour' email, in the same template."""
+    now = now or datetime.now(timezone.utc)
+    detail = f"Scanned {scanned} recent posting{'s' if scanned != 1 else ''} across {lists} list{'s' if lists != 1 else ''}. None were new matches."
+    slot = f"""
+<tr><td style="padding:0 0 10px 0">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed {LINE};border-radius:8px">
+    <tr><td style="padding:22px 16px;text-align:center">
+      <div style="font:600 15px/1.4 {SANS};color:{MUTED}">No new matches since your last check</div>
+      <div style="font:400 13px/1.5 {SANS};color:{FAINT};margin-top:4px">{html.escape(detail)}</div>
+    </td></tr>
+  </table>
+</td></tr>"""
+    subject = f"Nothing new this hour · {_clock(now)} ET"
+    text = f"{EMPTY_HEADLINE}\n{EMPTY_SUB}\n\n{detail}\n"
+    return subject, text, _page(now, f"{EMPTY_HEADLINE} {EMPTY_SUB}", EMPTY_HEADLINE, EMPTY_SUB, slot, legend=False)
 
 
 def send(subject: str, text: str, html_body: str, env=os.environ) -> None:

@@ -81,6 +81,15 @@ def run(
         else:
             sender(subject, text, html_body)  # raises -> state not saved, retried next run
             log.info("emailed %d postings", len(matches))
+    elif cfg.email_when_empty and not failures and not test:
+        # Only claim "nothing posted" when every list was actually checked.
+        scanned = sum(len(p) for p in fetched.values())
+        subject, text, html_body = emailer.render_empty(scanned, len(fetched), now=now)
+        if dry_run:
+            print(f"Subject: {subject}\n\n{text}")
+        else:
+            sender(subject, text, html_body)
+            log.info("nothing new qualifies; sent the empty-hour email")
     else:
         log.info("nothing new qualifies; no email")
 

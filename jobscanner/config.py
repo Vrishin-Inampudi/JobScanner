@@ -28,6 +28,7 @@ class Config:
     lists: list[ListSpec]
     criteria: Criteria
     max_age_hours: float = 24
+    email_when_empty: bool = False
 
 
 def load_config(path: str | Path) -> Config:
@@ -49,4 +50,5 @@ def load_config(path: str | Path) -> Config:
     max_age = raw.get("max_age_hours", 24)
     if not isinstance(max_age, (int, float)) or max_age <= 0:
         raise ValueError(f"{path}: 'max_age_hours' must be a positive number, got {max_age!r}")
-    return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age))
+    return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
+                  email_when_empty=bool(raw.get("email_when_empty", False)))
