@@ -51,6 +51,10 @@ def run(
         if baselined:
             log.info("list '%s': first run, recorded %d existing postings without emailing", spec.key, len(postings))
             continue
+        if cfg.only_latest_date:
+            latest = max((p.date for p in postings), default="")
+            new = [p for p in new if p.date == latest]
+            log.info("list '%s': only postings dated %s", spec.key, latest)
         kept = 0
         for p in new:
             if not spec.wants(p.title) or state.was_emailed(p) or any(k in batch_keys for k in p.job_keys):

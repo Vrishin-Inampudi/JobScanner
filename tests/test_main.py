@@ -126,3 +126,17 @@ def test_preview_shows_existing_without_saving(site, paths, capsys):
     run(cfg, state, dry_run=True, preview=True, session=object(), sender=outbox)
     assert outbox == [] and "https://x/a" in capsys.readouterr().out
     assert not Path(state).exists()
+
+
+def test_only_latest_date(site, paths):
+    cfg, state = paths
+    Path(cfg).write_text(CONFIG + "only_latest_date: true\n")
+    run(cfg, state, session=object(), sender=Outbox())  # baseline
+    site["cs"] = [
+        posting(row_id="today", title="Today Intern", company="NVIDIA", date="2026-10-21", apply_url="https://x/today"),
+        posting(row_id="old", title="Old Intern", company="NVIDIA", date="2026-10-04", apply_url="https://x/old"),
+    ]
+    outbox = Outbox()
+    run(cfg, state, session=object(), sender=outbox)
+    assert len(outbox) == 1
+    assert "https://x/today" in outbox[0][1] and "https://x/old" not in outbox[0][1]

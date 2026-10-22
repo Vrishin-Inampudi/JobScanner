@@ -97,6 +97,9 @@ criteria:
   and `aiml` is ML/AI. Run `python -m jobscanner --show-lists` to see all of them.
   `title_include` and `title_exclude` keep or drop titles that contain any of the
   given words. They're case-insensitive.
+- **`only_latest_date`**: `true` emails only postings dated on the list's most recent
+  date (today's batch), skipping older postings the site re-lists. Use `false` to get
+  any posting that's new to the list.
 - **`match`**: `any` means one criterion is enough. `all` means every criterion must
   hold. Under `all`, postings without a listed salary fail the pay check.
 - **`min_hourly_pay`**: compared against the top of the posted range. Yearly pay is

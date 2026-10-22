@@ -16,6 +16,10 @@ lists:
     title_include: [network engineer, networking, network security, network infrastructure, noc]
     title_exclude: [electrical, transmission, distribution, power, utility]
 
+# true = only email postings dated on the list's most recent date (i.e. today's batch),
+# ignoring older postings the site re-lists. false = any posting new to the list.
+only_latest_date: true
+
 # any = one criterion below is enough; all = every criterion must hold.
 match: any
 

@@ -58,6 +58,13 @@ def location_match(location: str, states: list[str]) -> str | None:
     return None
 
 
+def pretty_location(location: str) -> str:
+    """'Multi Location\\nLehi, UT, United States\\nSan Jose, CA, United States' -> 'Lehi, UT / San Jose, CA'."""
+    parts = [line.strip() for line in location.splitlines() if line.strip() and line.strip().lower() != "multi location"]
+    short = [p[: -len(", United States")] if p.endswith(", United States") else p for p in parts]
+    return " / ".join(short)
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
@@ -120,7 +127,7 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     reasons = [priority or p.company]
     if hourly is not None:
         reasons.append(f"${hourly:g}/hr")
-    reasons.append(p.location or "location unknown")
+    reasons.append(pretty_location(p.location) or "location unknown")
     return Match(p, hourly, state, priority, size, reasons)
 
 

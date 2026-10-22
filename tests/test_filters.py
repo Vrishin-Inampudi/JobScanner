@@ -74,7 +74,7 @@ def test_evaluate_any():
     assert evaluate(posting(location="Palo Alto, CA, United States"), CRIT) is not None
     assert evaluate(posting(size="10000+"), CRIT) is not None
     m = evaluate(posting(company="NVIDIA", salary="$52 /hr", location="Santa Clara, CA, United States"), CRIT)
-    assert m.reasons == ["NVIDIA", "$52/hr", "Santa Clara, CA, United States"]
+    assert m.reasons == ["NVIDIA", "$52/hr", "Santa Clara, CA"]
 
 
 def test_evaluate_all_unknown_pay_fails():

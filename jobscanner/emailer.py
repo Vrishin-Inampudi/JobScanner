@@ -7,7 +7,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 
-from .filters import Match
+from .filters import Match, pretty_location
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
@@ -31,14 +31,14 @@ def render(matches: list[Match]) -> tuple[str, str, str]:
         p = m.posting
         why = " · ".join(m.reasons)
         text_parts.append(
-            f"{p.title}\n{p.company} — {p.location}\n{_pay(m)} · {p.size or '?'} employees · posted {p.date}\n"
+            f"{p.title}\n{p.company} — {pretty_location(p.location)}\n{_pay(m)} · {p.size or '?'} employees · posted {p.date}\n"
             f"Why: {why}\nApply: {p.apply_url}\n"
         )
         e = html.escape
         html_parts.append(
             f'<div style="padding:12px 0;border-bottom:1px solid #ddd">'
             f'<div style="font-size:16px;font-weight:600"><a href="{e(p.apply_url, quote=True)}">{e(p.title)}</a></div>'
-            f'<div>{e(p.company)} — {e(p.location)}</div>'
+            f'<div>{e(p.company)} — {e(pretty_location(p.location))}</div>'
             f'<div style="color:#555">{e(_pay(m))} · {e(p.size or "?")} employees · posted {e(p.date)}</div>'
             f'<div style="color:#0a6">Why: {e(why)}</div></div>'
         )

@@ -27,6 +27,7 @@ class ListSpec:
 class Config:
     lists: list[ListSpec]
     criteria: Criteria
+    only_latest_date: bool = False
 
 
 def load_config(path: str | Path) -> Config:
@@ -45,4 +46,4 @@ def load_config(path: str | Path) -> Config:
         priority_companies=[str(s) for s in crit.get("priority_companies") or []],
         match=match,
     )
-    return Config(lists=lists, criteria=criteria)
+    return Config(lists=lists, criteria=criteria, only_latest_date=bool(raw.get("only_latest_date", False)))
