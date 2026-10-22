@@ -89,10 +89,12 @@ def test_rejects_off_host_data_path():
         fetch_view(Session(), "https://airtable.com/embed/appX/shrY", "cs")
 
 
-def test_job_key_ignores_tracking_query():
+def test_job_keys_ignore_tracking_query():
     from .test_filters import posting
     a = posting(list_key="cs", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Cyber Security")
     b = posting(list_key="eng", apply_url="https://jobright.ai/jobs/info/abc?utm_campaign=Engineering")
-    assert a.job_key == b.job_key == "jobright.ai/jobs/info/abc"
-    c = posting(apply_url="", company="Acme", title="Intern", location="Austin, TX")
-    assert c.job_key == "acme|intern|austin, tx"
+    assert a.job_keys == b.job_keys
+    assert a.job_keys[0] == "jobright.ai/jobs/info/abc"
+    assert a.job_keys[1] == "acme|security intern|austin, tx, united states"
+    c = posting(apply_url="", company="Acme", title="Intern  ", location="Austin, TX")
+    assert c.job_keys == ("acme|intern|austin, tx",)

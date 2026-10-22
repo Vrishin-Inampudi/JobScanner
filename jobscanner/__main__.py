@@ -53,12 +53,12 @@ def run(
             continue
         kept = 0
         for p in new:
-            if not spec.wants(p.title) or state.was_emailed(p.job_key) or p.job_key in batch_keys:
+            if not spec.wants(p.title) or state.was_emailed(p) or any(k in batch_keys for k in p.job_keys):
                 continue
             m = evaluate(p, cfg.criteria)
             if m:
                 matches.append(m)
-                batch_keys.add(p.job_key)
+                batch_keys.update(p.job_keys)
                 kept += 1
         log.info("list '%s': %d postings, %d new, %d qualify", spec.key, len(postings), len(new), kept)
 
@@ -78,7 +78,7 @@ def run(
     else:
         for key, postings in fetched.items():
             state.mark_seen(key, postings)
-        state.mark_emailed([m.posting.job_key for m in matches])
+        state.mark_emailed([m.posting for m in matches])
         state.save(state_path)
 
     for f in failures:

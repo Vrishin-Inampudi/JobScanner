@@ -54,7 +54,7 @@ def test_first_run_baselines_then_sends_only_new(site, paths):
     assert outbox == []
 
     site["cs"].append(posting(row_id="new", company="NVIDIA", apply_url="https://x/new"))
-    site["cs"].append(posting(row_id="boring", apply_url="https://x/boring"))  # doesn't qualify
+    site["cs"].append(posting(row_id="boring", title="Help Desk Intern", apply_url="https://x/boring"))  # doesn't qualify
     assert run(*paths, session=object(), sender=outbox) == 0
     assert len(outbox) == 1 and "NVIDIA" in outbox[0][0] and "https://x/new" in outbox[0][1]
     assert "boring" not in outbox[0][1]

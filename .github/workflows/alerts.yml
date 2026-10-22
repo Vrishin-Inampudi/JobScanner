@@ -2,7 +2,7 @@ name: Internship alerts
 
 on:
   schedule:
-    - cron: "0 * * * *"   # hourly (GitHub may start it a few minutes late)
+    - cron: "23 * * * *"  # hourly; off the top of the hour, when GitHub often delays or skips runs
   workflow_dispatch:
 
 permissions:

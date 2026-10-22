@@ -43,12 +43,18 @@ class Posting:
         return f"{self.list_key}:{self.row_id}"
 
     @property
-    def job_key(self) -> str:
-        """Stable identity across lists and table rebuilds (the site regenerates Airtable row ids)."""
-        if self.apply_url:
-            u = urlsplit(self.apply_url)
-            return f"{u.netloc.lower()}{u.path.rstrip('/')}"
-        return "|".join(x.strip().lower() for x in (self.company, self.title, self.location))
+    def job_keys(self) -> tuple[str, ...]:
+        """Identities that survive the site's table rebuilds.
+
+        The site regenerates Airtable row ids on every rebuild and sometimes gives an
+        existing job a new apply link, so a job counts as seen if either its link (minus
+        tracking query) or its company|title|location has been seen.
+        """
+        fingerprint = "|".join(" ".join(x.lower().split()) for x in (self.company, self.title, self.location))
+        if not self.apply_url:
+            return (fingerprint,)
+        u = urlsplit(self.apply_url)
+        return (f"{u.netloc.lower()}{u.path.rstrip('/')}", fingerprint)
 
 
 def new_session() -> requests.Session:

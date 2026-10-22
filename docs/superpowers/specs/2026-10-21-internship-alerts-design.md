@@ -127,8 +127,10 @@ Sort the hour's qualifying postings by, in order:
 
 ## Dedup and state
 
-- Identity = the Apply URL without its query string (falls back to
-  company|title|location). **Not** the Airtable row id: the site rebuilds its tables
+- Identity = the Apply URL without its query string **and** company|title|location;
+  a posting is seen if either was seen. The site sometimes gives an existing job a new
+  apply link on rebuild (10 of 12 "new" postings in the first live email were such
+  repeats), so the link alone isn't enough. **Not** the Airtable row id: the site rebuilds its tables
   several times a day and every row gets a new id (found in production 2026-10-21,
   when a rebuild re-sent every match). Stripping the query (`utm_campaign` differs per
   list) also dedupes the same job across lists. The state file is versioned; an older
