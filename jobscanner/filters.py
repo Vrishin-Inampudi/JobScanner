@@ -53,14 +53,14 @@ def location_match(location: str, states: list[str]) -> str | None:
     for code in states:
         code = code.upper()
         name = STATES.get(code, code)
-        if re.search(rf"(^|,)\s*{code}\s*(,|$)", location) or re.search(rf"\b{re.escape(name)}\b", location, re.I):
+        if re.search(rf"(^|[,;\n])\s*{code}\s*([,;\n]|$)", location) or re.search(rf"\b{re.escape(name)}\b", location, re.I):
             return code
     return None
 
 
 def pretty_location(location: str) -> str:
     """'Multi Location\\nLehi, UT, United States\\nSan Jose, CA, United States' -> 'Lehi, UT / San Jose, CA'."""
-    parts = [line.strip() for line in location.splitlines() if line.strip() and line.strip().lower() != "multi location"]
+    parts = [x.strip() for x in re.split(r"[;\n]", location) if x.strip() and x.strip().lower() != "multi location"]
     short = [p[: -len(", United States")] if p.endswith(", United States") else p for p in parts]
     return " / ".join(short)
 

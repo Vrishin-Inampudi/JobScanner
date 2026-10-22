@@ -49,6 +49,8 @@ def test_parse_size():
     ("United States", None),
     ("Remote, United States", None),
     ("Canton, OH, United States", None),
+    ("Menlo Park, CA; New York, NY", "CA"),
+    ("Austin, TX; Hartford, CT", "CT"),
 ])
 def test_location_match(loc, expected):
     assert location_match(loc, ["CA", "MA", "NY", "CT"]) == expected

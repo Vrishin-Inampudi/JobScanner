@@ -141,11 +141,15 @@ def test_render_escapes_subject_and_age():
     assert "&lt;b&gt;Intern&lt;/b&gt;" in html and "<b>Intern</b>" not in html
     assert "posted 12 min ago" in text and "posted 1h 15m ago" in text
     assert "Apply: https://jobright.ai/jobs/info/0" in text
+    assert "4 new internships worth a look" in html
+    assert "★ Top company" in html and "$40/hr" in html
+    assert "Wednesday, Oct 21 · 11:05 PM ET" in html
 
 
 def test_pretty_location():
     assert pretty_location("Multi Location\nLehi, UT, United States\nSan Jose, CA, United States") == "Lehi, UT / San Jose, CA"
     assert pretty_location("Cambridge, MA") == "Cambridge, MA"
+    assert pretty_location("Menlo Park, CA; New York, NY") == "Menlo Park, CA / New York, NY"
     assert pretty_location("") == ""
 
 
