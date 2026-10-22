@@ -20,12 +20,14 @@ class EmailConfigError(RuntimeError):
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
 
-# Palette: warm paper background, white cards, ink text, one orange accent.
-BG, CARD, BORDER = "#F5F2EC", "#FFFFFF", "#E7E1D6"
-INK, MUTED, ACCENT = "#1C1C1C", "#6B665E", "#D9480F"
-TAG_BG, TOP_BG = "#F1EDE5", "#FFF0E6"
-SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
-SERIF = "Georgia,'Times New Roman',serif"
+# Dark palette after Notion Calendar: near-black canvas, hairline borders, event-style
+# blocks with a colored left bar (red = top company, blue = other match).
+BG, PANEL, LINE = "#191919", "#202020", "#2F2F2F"
+TEXT, MUTED, FAINT = "#ECECEC", "#9B9B9B", "#6F6F6F"
+TODAY = "#EB5757"
+TOP = {"bar": "#EB5757", "fill": "#3A2422", "tag": "#4A2A27", "tag_text": "#F3A49E"}
+OTHER = {"bar": "#4DA3FF", "fill": "#1F2C3A", "tag": "#26394D", "tag_text": "#A9CFF7"}
+SANS = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Inter,Helvetica,Arial,sans-serif"
 
 
 def _age(m: Match, now: datetime) -> str:
@@ -36,17 +38,21 @@ def _age(m: Match, now: datetime) -> str:
     return f"{minutes} min ago" if minutes < 60 else f"{minutes // 60}h {minutes % 60}m ago"
 
 
+def _clock(when: datetime) -> str:
+    local = when.astimezone(DISPLAY_TZ)
+    return f"{local:%I:%M %p}".lstrip("0")
+
+
 def _pay(m: Match) -> str:
     return f"${m.hourly:,.0f}/hr" if m.hourly is not None else "Pay not listed"
 
 
 def _tags(m: Match) -> list[tuple[str, bool]]:
-    """Why it matched, as (label, highlighted) pairs."""
+    """Why it matched (plus pay, always), as (label, highlighted) pairs."""
     tags = []
     if m.priority:
         tags.append(("★ Top company", True))
-    if m.hourly is not None:
-        tags.append((_pay(m), False))
+    tags.append((_pay(m), False))
     if m.state:
         tags.append((f"In {m.state}", False))
     if m.size >= 10000:
@@ -71,64 +77,76 @@ def _text(matches: list[Match], now: datetime) -> str:
     return "\n".join(parts)
 
 
-def _card(m: Match, now: datetime) -> str:
+def _event(m: Match, now: datetime) -> str:
+    """One job, drawn like a calendar event block."""
     e = lambda s: html.escape(str(s), quote=True)
     p = m.posting
+    c = TOP if m.priority else OTHER
+    when = f"{_clock(p.posted_at)} · {_age(m, now)}" if p.posted_at else p.date
     facts = " &nbsp;·&nbsp; ".join(
         f'<span style="white-space:nowrap">{e(x)}</span>'
-        for x in (pretty_location(p.location), _pay(m), p.work_model, _age(m, now)) if x
+        for x in (p.company, pretty_location(p.location), p.work_model) if x
     )
     tags = "".join(
-        f'<span style="display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:999px;'
-        f'background:{TOP_BG if top else TAG_BG};color:{ACCENT if top else INK};font-size:12px;'
-        f'font-weight:{600 if top else 500}">{e(label)}</span>'
+        f'<span style="display:inline-block;margin:0 6px 6px 0;padding:3px 9px;border-radius:6px;'
+        f'background:{c["tag"] if top else LINE};color:{c["tag_text"] if top else MUTED};'
+        f'font:{600 if top else 500} 12px/1.5 {SANS}">{e(label)}</span>'
         for label, top in _tags(m)
     )
     return f"""
-<tr><td style="padding:0 0 14px 0">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{CARD};border:1px solid {BORDER};border-radius:12px">
-    <tr><td style="padding:20px 22px">
-      <div style="font:700 11px/1.4 {SANS};letter-spacing:1.2px;text-transform:uppercase;color:{ACCENT}">{e(p.company)}</div>
-      <div style="font:700 18px/1.35 {SANS};color:{INK};margin:6px 0 8px">
-        <a href="{e(p.apply_url)}" style="color:{INK};text-decoration:none">{e(p.title)}</a></div>
-      <div style="font:400 14px/1.5 {SANS};color:{MUTED};margin-bottom:12px">{facts}</div>
-      <div style="font-family:{SANS};margin-bottom:8px">{tags}</div>
-      <a href="{e(p.apply_url)}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:{INK};
-         color:#FFFFFF;font:600 14px/1 {SANS};text-decoration:none">Apply &rarr;</a>
+<tr><td style="padding:0 0 10px 0">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{c['fill']}"
+         style="background:{c['fill']};border-radius:8px;border-left:4px solid {c['bar']}">
+    <tr><td style="padding:14px 16px 12px 14px">
+      <div style="font:600 16px/1.35 {SANS};color:{TEXT}">
+        <a href="{e(p.apply_url)}" style="color:{TEXT};text-decoration:none">{e(p.title)}</a></div>
+      <div style="font:500 13px/1.5 {SANS};color:{c['tag_text']};margin:3px 0 6px">{e(when)}</div>
+      <div style="font:400 13px/1.55 {SANS};color:{MUTED};margin-bottom:10px">{facts}</div>
+      <div>{tags}</div>
+      <a href="{e(p.apply_url)}" style="display:inline-block;margin-top:4px;padding:7px 14px;border-radius:7px;
+         background:#2A2A2A;border:1px solid #3A3A3A;color:{TEXT};font:600 13px/1 {SANS};text-decoration:none">Apply &rarr;</a>
     </td></tr>
   </table>
 </td></tr>"""
 
 
+def _legend_dot(color: str, label: str) -> str:
+    return (f'<span style="display:inline-block;margin-right:16px;white-space:nowrap">'
+            f'<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{color};'
+            f'vertical-align:middle;margin-right:7px"></span>'
+            f'<span style="vertical-align:middle">{label}</span></span>')
+
+
 def _html(matches: list[Match], now: datetime) -> str:
     noun = "internship" if len(matches) == 1 else "internships"
     local = now.astimezone(DISPLAY_TZ)
-    stamp = f"{local:%A, %b} {local.day} · {local:%I:%M %p}".replace(" 0", " ") + " ET"
     preheader = html.escape(", ".join(dict.fromkeys(m.posting.company for m in matches)))
-    cards = "".join(_card(m, now) for m in matches)
+    events = "".join(_event(m, now) for m in matches)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>JobScanner</title></head>
-<body style="margin:0;padding:0;background:{BG}">
+<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>JobScanner</title></head>
+<body style="margin:0;padding:0;background:{BG}" bgcolor="{BG}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{preheader}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{BG}">
-<tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{BG}" style="background:{BG}">
+<tr><td align="center" style="padding:24px 12px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px">
-    <tr><td style="padding:0 4px 18px">
+    <tr><td style="padding:0 2px 14px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="font:800 13px/1 {SANS};letter-spacing:2px;color:{INK}">JOBSCANNER</td>
-        <td align="right" style="font:400 12px/1 {SANS};color:{MUTED}">{stamp}</td>
+        <td style="font:600 13px/1 {SANS};color:{MUTED}">JobScanner</td>
+        <td align="right" style="font:500 15px/1 {SANS};color:{TEXT}">
+          {local:%a} <span style="display:inline-block;padding:3px 6px;border-radius:6px;background:{TODAY};color:#FFFFFF;font-weight:600">{local.day}</span>
+          <span style="color:{FAINT};font-size:12px;margin-left:6px">{_clock(now)} ET</span></td>
       </tr></table>
-      <div style="height:2px;background:{INK};margin-top:12px"></div>
     </td></tr>
-    <tr><td style="padding:6px 4px 22px">
-      <div style="font:700 30px/1.2 {SERIF};color:{INK}">{len(matches)} new {noun} worth a look</div>
-      <div style="font:400 15px/1.5 {SANS};color:{MUTED};margin-top:8px">
-        Posted since your last check, best first: top companies, then pay, then location.</div>
-    </td></tr>
-    {cards}
-    <tr><td style="padding:14px 4px 0;font:400 12px/1.6 {SANS};color:{MUTED};text-align:center">
-      Checked hourly from intern-list.com &middot; Edit <b>config.yaml</b> in your JobScanner repo to change what you get.
+    <tr><td style="padding:6px 2px 4px;font:700 30px/1.2 {SANS};color:{TEXT};letter-spacing:-0.4px">
+      {len(matches)} new {noun}</td></tr>
+    <tr><td style="padding:0 2px 16px;font:400 14px/1.5 {SANS};color:{MUTED};border-bottom:1px solid {LINE}">
+      Posted since your last check &middot; best first</td></tr>
+    <tr><td style="height:16px;line-height:16px;font-size:0">&nbsp;</td></tr>
+    {events}
+    <tr><td style="padding:14px 2px 0;border-top:1px solid {LINE};font:400 12px/1.6 {SANS};color:{MUTED}">
+      {_legend_dot(TOP["bar"], "Top company")}{_legend_dot(OTHER["bar"], "Other match")}
+      <div style="margin-top:8px;color:{FAINT}">Checked hourly from intern-list.com &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
     </td></tr>
   </table>
 </td></tr>
