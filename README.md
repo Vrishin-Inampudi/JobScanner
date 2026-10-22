@@ -43,6 +43,38 @@ then bigger companies, then the newest postings.
 GitHub emails you when a run fails, for example if intern-list.com changes its
 layout. So if it breaks, you'll hear about it instead of it going quiet.
 
+### Make the hourly runs reliable (recommended)
+
+GitHub's built-in scheduler often delays or skips runs. When this repo was new, it
+started only 2 of about 12 hourly runs. Runs you trigger yourself start right away, so
+a free outside timer gives you a dependable hourly check:
+
+1. **Create a GitHub token that can only start this workflow.** Go to
+   <https://github.com/settings/personal-access-tokens/new>, then:
+   - Set *Repository access* to **Only select repositories**, and pick your copy of
+     JobScanner.
+   - Set *Permissions → Repository permissions → Actions* to **Read and write**.
+     Leave everything else at No access.
+   - Choose a 1-year expiration, generate the token, and copy it.
+2. **Create a free account at <https://cron-job.org>,** then click *Create cronjob*:
+   - **URL:** `https://api.github.com/repos/<you>/JobScanner/actions/workflows/alerts.yml/dispatches`
+   - **Schedule:** every hour, at minute 5.
+   - Under *Advanced*, set **Request method** to `POST` and **Request body** to
+     `{"ref":"main"}`.
+   - Add these **headers**:
+
+     | Key | Value |
+     |---|---|
+     | `Authorization` | `Bearer <your token>` |
+     | `Accept` | `application/vnd.github+json` |
+     | `X-GitHub-Api-Version` | `2022-11-28` |
+     | `Content-Type` | `application/json` |
+3. **Save it and click *Test run*.** A response of **204** means it worked, and a new
+   run will appear in your *Actions* tab within seconds.
+
+The built-in schedule stays on as a backup. If both fire close together, the second
+run just finds nothing new.
+
 ## Change what it looks for
 
 Everything lives in [`config.yaml`](config.yaml), and no code changes are needed.
