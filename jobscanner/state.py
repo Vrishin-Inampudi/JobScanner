@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .source import Posting
@@ -30,9 +30,12 @@ class State:
     Jobs are identified by ``Posting.job_keys``; a job is seen if any of its keys is.
     """
 
-    def __init__(self, lists: dict[str, dict[str, str]] | None = None, emailed: dict[str, str] | None = None):
+    def __init__(self, lists: dict[str, dict[str, str]] | None = None, emailed: dict[str, str] | None = None,
+                 last_run_at: datetime | None = None, last_email_at: datetime | None = None):
         self.lists = lists or {}
         self.emailed = emailed or {}
+        self.last_run_at = last_run_at      # last run where every list was checked
+        self.last_email_at = last_email_at  # last email of any kind (jobs or "nothing posted")
 
     @classmethod
     def load(cls, path: str | Path) -> "State":
@@ -42,7 +45,8 @@ class State:
         raw = json.loads(p.read_text())
         if raw.get("version") != VERSION:
             return cls()
-        return cls(raw.get("lists"), raw.get("emailed"))
+        when = lambda k: datetime.fromisoformat(raw[k]) if raw.get(k) else None
+        return cls(raw.get("lists"), raw.get("emailed"), when("last_run_at"), when("last_email_at"))
 
     def diff(self, list_key: str, postings: list[Posting]) -> list[Posting]:
         """Postings not seen before in this list."""
@@ -72,5 +76,7 @@ class State:
         emailed = {k: d for k, d in self.emailed.items() if d >= cutoff}
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        data = {"version": VERSION, "lists": self.lists, "emailed": emailed}
+        data = {"version": VERSION, "lists": self.lists, "emailed": emailed,
+                "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
+                "last_email_at": self.last_email_at.isoformat() if self.last_email_at else None}
         p.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")

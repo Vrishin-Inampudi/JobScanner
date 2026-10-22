@@ -174,20 +174,22 @@ EMPTY_HEADLINE = "Hi, nothing has been posted!"
 EMPTY_SUB = "Check back in an hour."
 
 
-def render_empty(scanned: int, lists: int, now: datetime | None = None) -> tuple[str, str, str]:
-    """The 'nothing new this hour' email, in the same template."""
+def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | None = None) -> tuple[str, str, str]:
+    """The 'nothing has been posted' email, in the same template."""
     now = now or datetime.now(timezone.utc)
-    detail = f"Scanned {scanned} recent posting{'s' if scanned != 1 else ''} across {lists} list{'s' if lists != 1 else ''}. None were new matches."
+    hours = round(quiet_hours)
+    detail = (f"No new matches in the last {hours} hour{'s' if hours != 1 else ''}. "
+              f"This check scanned {scanned} recent posting{'s' if scanned != 1 else ''} across {lists} list{'s' if lists != 1 else ''}.")
     slot = f"""
 <tr><td style="padding:0 0 10px 0">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed {LINE};border-radius:8px">
     <tr><td style="padding:22px 16px;text-align:center">
-      <div style="font:600 15px/1.4 {SANS};color:{MUTED}">No new matches since your last check</div>
+      <div style="font:600 15px/1.4 {SANS};color:{MUTED}">Nothing new to show</div>
       <div style="font:400 13px/1.5 {SANS};color:{FAINT};margin-top:4px">{html.escape(detail)}</div>
     </td></tr>
   </table>
 </td></tr>"""
-    subject = f"Nothing new this hour · {_clock(now)} ET"
+    subject = f"Nothing new in the last {hours}h · {_clock(now)} ET"
     text = f"{EMPTY_HEADLINE}\n{EMPTY_SUB}\n\n{detail}\n"
     return subject, text, _page(now, f"{EMPTY_HEADLINE} {EMPTY_SUB}", EMPTY_HEADLINE, EMPTY_SUB, slot, legend=False)
 

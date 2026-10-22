@@ -28,7 +28,8 @@ class Config:
     lists: list[ListSpec]
     criteria: Criteria
     max_age_hours: float = 24
-    email_when_empty: bool = False
+    empty_email_every_hours: float | None = None
+    quiet_hours: tuple[int, int] | None = None  # [start, end) hours, Eastern time
 
 
 def load_config(path: str | Path) -> Config:
@@ -50,5 +51,13 @@ def load_config(path: str | Path) -> Config:
     max_age = raw.get("max_age_hours", 24)
     if not isinstance(max_age, (int, float)) or max_age <= 0:
         raise ValueError(f"{path}: 'max_age_hours' must be a positive number, got {max_age!r}")
+    every = raw.get("empty_email_every_hours")
+    if every is not None and (not isinstance(every, (int, float)) or every <= 0):
+        raise ValueError(f"{path}: 'empty_email_every_hours' must be a positive number, got {every!r}")
+    quiet = raw.get("quiet_hours")
+    if quiet is not None:
+        if not (isinstance(quiet, list) and len(quiet) == 2 and all(isinstance(h, int) and 0 <= h <= 24 for h in quiet)):
+            raise ValueError(f"{path}: 'quiet_hours' must be [start, end] hours 0-24, got {quiet!r}")
+        quiet = (quiet[0], quiet[1])
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
-                  email_when_empty=bool(raw.get("email_when_empty", False)))
+                  empty_email_every_hours=float(every) if every else None, quiet_hours=quiet)

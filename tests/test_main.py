@@ -171,28 +171,85 @@ def test_test_email_sends_last_day_without_touching_state(site, paths):
     assert Path(paths[1]).read_text() == state_before
 
 
-def test_empty_hour_email_when_enabled(site, paths):
-    cfg, state = paths
-    Path(cfg).write_text(CONFIG + "email_when_empty: true\n")
-    site["cs"] = [posting("boring", title="Help Desk Intern")]  # posted, but doesn't qualify
+def _quiet_config(paths, extra):
+    Path(paths[0]).write_text(CONFIG + extra)
+
+
+def test_quiet_email_after_5_hours_of_nothing(site, paths):
+    _quiet_config(paths, "empty_email_every_hours: 5\n")
+    site["cs"] = [posting("boring", title="Help Desk Intern", minutes_ago=5)]  # posted, doesn't qualify
     outbox = Outbox()
-    assert run(cfg, state, session=object(), sender=outbox, now=NOW) == 0
+    go(paths, outbox)                                     # first run starts the clock, no email
+    assert outbox == []
+    go(paths, outbox, now=NOW + timedelta(hours=3))       # 3h of nothing: still quiet
+    assert outbox == []
+    go(paths, outbox, now=NOW + timedelta(hours=4, minutes=55))   # cron jitter: ~5h counts
     assert len(outbox) == 1
     subject, text, html = outbox[0]
-    assert subject.startswith("Nothing new this hour")
+    assert subject.startswith("Nothing new")
     assert "Hi, nothing has been posted!" in html and "Check back in an hour." in html
-    assert "Scanned 1 recent posting across 2 lists" in text
+    assert "No new matches in the last 5 hours" in text
+    go(paths, outbox, now=NOW + timedelta(hours=6))       # clock restarted
+    assert len(outbox) == 1
 
 
-def test_no_empty_email_when_a_list_failed(site, paths):
-    cfg, state = paths
-    Path(cfg).write_text(CONFIG.replace("- key: swe", "- key: nope") + "email_when_empty: true\n")
+def test_job_email_restarts_the_quiet_clock(site, paths):
+    _quiet_config(paths, "empty_email_every_hours: 5\n")
     outbox = Outbox()
-    assert run(cfg, state, session=object(), sender=outbox, now=NOW) == 1
+    go(paths, outbox)                                      # starts the clock
+    site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
+    go(paths, outbox, now=NOW + timedelta(hours=4))        # job email at +4h
+    go(paths, outbox, now=NOW + timedelta(hours=6))        # only 2h since the job email
+    assert len(outbox) == 1 and "NVIDIA" in outbox[0][0]
+
+
+def test_no_quiet_email_when_a_list_failed(site, paths):
+    cfg, state = paths
+    Path(cfg).write_text(CONFIG.replace("- key: swe", "- key: nope") + "empty_email_every_hours: 1\n")
+    outbox = Outbox()
+    run(cfg, state, session=object(), sender=outbox, now=NOW)
+    assert run(cfg, state, session=object(), sender=outbox, now=NOW + timedelta(hours=3)) == 1
     assert outbox == []
 
 
-def test_no_empty_email_by_default(site, paths):
+def test_no_quiet_email_by_default(site, paths):
     outbox = Outbox()
     go(paths, outbox)
+    go(paths, outbox, now=NOW + timedelta(hours=8))
     assert outbox == []
+
+
+QUIET = "quiet_hours: [0, 4]\n"   # midnight to 4 AM ET
+
+
+def test_quiet_hours_skip_the_run(site, paths, monkeypatch):
+    _quiet_config(paths, QUIET)
+    site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
+    calls = []
+    monkeypatch.setattr(source, "fetch_list_map", lambda s: calls.append(1) or {})
+    one_am_et = datetime(2026, 10, 22, 5, 0, tzinfo=timezone.utc)
+    outbox = Outbox()
+    assert go(paths, outbox, now=one_am_et) == 0
+    assert outbox == [] and calls == [] and not Path(paths[1]).exists()
+
+
+def test_four_am_run_catches_up_on_quiet_hours(site, paths):
+    _quiet_config(paths, QUIET)
+    eleven_pm_et = datetime(2026, 10, 22, 3, 0, tzinfo=timezone.utc)
+    four_am_et = datetime(2026, 10, 22, 8, 0, tzinfo=timezone.utc)
+    outbox = Outbox()
+    go(paths, outbox, now=eleven_pm_et)
+    # posted at 12:30 AM ET: 3.5h before the 4 AM run, outside the 2h window
+    site["cs"] = [_posting(row_id="night", company="NVIDIA", title="Night Intern",
+                           apply_url="https://jobright.ai/jobs/info/night",
+                           posted_at=datetime(2026, 10, 22, 4, 30, tzinfo=timezone.utc))]
+    go(paths, outbox, now=four_am_et)
+    assert len(outbox) == 1 and "jobs/info/night" in outbox[0][1]
+
+
+def test_test_mode_ignores_quiet_hours(site, paths):
+    _quiet_config(paths, QUIET)
+    site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
+    outbox = Outbox()
+    go(paths, outbox, now=datetime(2026, 10, 22, 5, 0, tzinfo=timezone.utc), test=True)
+    assert len(outbox) == 1

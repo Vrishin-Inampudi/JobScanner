@@ -14,7 +14,8 @@ def test_repo_config_loads():
     assert cfg.criteria.locations == ["CA", "MA", "NY", "CT"]
     assert "NVIDIA" in cfg.criteria.priority_companies
     assert cfg.max_age_hours == 2
-    assert cfg.email_when_empty is True
+    assert cfg.empty_email_every_hours == 5
+    assert cfg.quiet_hours == (0, 4)
 
 
 def test_list_spec_wants():
