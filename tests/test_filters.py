@@ -56,6 +56,44 @@ def test_location_match(loc, expected):
     assert location_match(loc, ["CA", "MA", "NY", "CT"]) == expected
 
 
+METRO_PREFS = ["Bay Area", "Los Angeles", "San Diego", "Seattle", "NYC", "Boston", "Chicago", "Austin", "DC", "CT"]
+
+
+@pytest.mark.parametrize("loc,expected", [
+    ("San Jose, CA", "Bay Area"),
+    ("Sunnyvale, CA, United States", "Bay Area"),
+    ("El Segundo, CA", "Los Angeles"),
+    ("Irvine, CA", "Los Angeles"),
+    ("San Diego, CA", "San Diego"),
+    ("Redmond, WA", "Seattle"),
+    ("New York, NY", "NYC"),
+    ("Southeast, New York, United States", None),
+    ("Cambridge, MA", "Boston"),
+    ("Cambridge, UK", None),
+    ("Chicago, IL", "Chicago"),
+    ("North Chicago, IL", None),
+    ("Austin, TX", "Austin"),
+    ("Washington, DC", "DC"),
+    ("McLean, VA", "DC"),
+    ("Bethesda, MD", "DC"),
+    ("Springfield, IL", None),
+    ("Hartford, CT, United States", "CT"),
+    ("Sacramento, CA", None),
+    ("Dallas, TX", None),
+    ("Remote, United States", None),
+    ("Multi Location\nDallas, TX, United States\nSeattle, WA, United States", "Seattle"),
+    ("Atlanta, GA; Palo Alto, CA", "Bay Area"),
+])
+def test_metro_match(loc, expected):
+    assert location_match(loc, METRO_PREFS) == expected
+
+
+def test_city_entries():
+    assert location_match("Denver, CO, United States", ["Denver, CO"]) == "Denver, CO"
+    assert location_match("Denver, CO", ["Denver"]) == "Denver"
+    assert location_match("Denver, PA", ["Denver, CO"]) is None
+
+
 @pytest.mark.parametrize("company,expected", [
     ("NVIDIA Corporation", "NVIDIA"),
     ("Palo Alto Networks, Inc.", "Palo Alto Networks"),

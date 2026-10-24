@@ -11,7 +11,7 @@ def test_repo_config_loads():
     cfg = load_config(ROOT / "config.yaml")
     assert [l.key for l in cfg.lists] == ["cs", "swe", "eng"]
     assert cfg.criteria.min_hourly_pay == 35
-    assert cfg.criteria.locations == ["CA", "MA", "NY", "CT"]
+    assert cfg.criteria.locations[0] == "Bay Area" and "CT" in cfg.criteria.locations
     assert "NVIDIA" in cfg.criteria.priority_companies
     assert cfg.max_age_hours == 2
     assert cfg.empty_email_every_hours == 5

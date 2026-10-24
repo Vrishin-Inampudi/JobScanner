@@ -35,7 +35,9 @@ match: any
 
 criteria:
   min_hourly_pay: 35            # top of posted range; yearly pay / 2080
-  locations: [CA, MA, NY, CT]   # state codes
+  # State codes (CT), metro areas (Bay Area, Los Angeles, San Diego, Seattle, NYC, Boston,
+  # Chicago, Austin, DC — suburbs included, see METROS in jobscanner/filters.py) or cities ("Denver, CO").
+  locations: [Bay Area, Los Angeles, San Diego, Seattle, NYC, Boston, Chicago, Austin, DC, CT]
   large_company_min_size: 10000 # employees, from the site's size buckets
   priority_companies:           # ranked first; also count as "large company"
     - Palo Alto Networks

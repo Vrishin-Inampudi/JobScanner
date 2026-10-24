@@ -53,8 +53,8 @@ def _tags(m: Match) -> list[tuple[str, bool]]:
     if m.priority:
         tags.append(("★ Top company", True))
     tags.append((_pay(m), False))
-    if m.state:
-        tags.append((f"In {m.state}", False))
+    if m.area:
+        tags.append((f"In {m.area}", False))
     if m.size >= 10000:
         tags.append(("10k+ employees", False))
     return tags

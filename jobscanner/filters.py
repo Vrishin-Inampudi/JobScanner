@@ -48,13 +48,89 @@ def parse_size(size: str | None) -> int:
     return int(m.group(1).replace(",", "")) if m else 0
 
 
-def location_match(location: str, states: list[str]) -> str | None:
-    """Return the first configured state code found in a location string."""
-    for code in states:
-        code = code.upper()
-        name = STATES.get(code, code)
-        if re.search(rf"(^|[,;\n])\s*{code}\s*([,;\n]|$)", location) or re.search(rf"\b{re.escape(name)}\b", location, re.I):
-            return code
+# Metro areas usable in `locations`, as (state, cities). Postings name the actual city,
+# so each metro lists the places its jobs are usually filed under.
+METROS = {
+    "Bay Area": ("CA", [
+        "San Francisco", "South San Francisco", "San Jose", "Palo Alto", "Mountain View", "Sunnyvale",
+        "Santa Clara", "Menlo Park", "Redwood City", "Cupertino", "Milpitas", "Fremont", "Oakland",
+        "Berkeley", "Emeryville", "San Mateo", "Foster City", "Burlingame", "San Carlos", "San Bruno",
+        "Los Gatos", "Campbell", "Pleasanton", "Livermore", "San Ramon", "Hayward", "Newark",
+        "Brisbane", "Walnut Creek", "Dublin", "Belmont", "Los Altos",
+    ]),
+    "Los Angeles": ("CA", [
+        "Los Angeles", "Santa Monica", "Culver City", "Playa Vista", "Marina del Rey", "El Segundo",
+        "Hawthorne", "Torrance", "Redondo Beach", "Manhattan Beach", "Gardena", "Long Beach",
+        "Pasadena", "Burbank", "Glendale", "Irvine", "Costa Mesa", "Newport Beach", "Anaheim",
+        "Santa Ana", "Carson", "Inglewood", "Venice",
+    ]),
+    "San Diego": ("CA", ["San Diego", "La Jolla", "Carlsbad", "Del Mar", "Chula Vista", "Poway", "Oceanside"]),
+    "Seattle": ("WA", ["Seattle", "Bellevue", "Redmond", "Kirkland", "Bothell", "Tukwila", "Renton", "Everett"]),
+    "NYC": ("NY", ["New York", "New York City", "Brooklyn", "Manhattan", "Queens", "Long Island City", "Bronx"]),
+    "Boston": ("MA", [
+        "Boston", "Cambridge", "Somerville", "Waltham", "Lexington", "Burlington", "Bedford", "Woburn",
+        "Newton", "Needham", "Watertown", "Quincy", "Marlborough", "Framingham", "Andover",
+    ]),
+    "Chicago": ("IL", ["Chicago", "Evanston", "Schaumburg", "Oak Brook", "Naperville", "Rosemont", "Deerfield", "Northbrook"]),
+    "Austin": ("TX", ["Austin", "Round Rock", "Cedar Park", "Georgetown", "Pflugerville"]),
+    "DC": ("DC", ["Washington"]),
+}
+# DC jobs are mostly filed under Northern Virginia and Maryland suburbs.
+DC_SUBURBS = {
+    "VA": ["Arlington", "Alexandria", "McLean", "Tysons", "Tysons Corner", "Vienna", "Fairfax", "Reston",
+           "Herndon", "Chantilly", "Falls Church", "Springfield", "Sterling", "Dulles", "Ashburn", "Annandale"],
+    "MD": ["Bethesda", "Rockville", "Silver Spring", "College Park", "Gaithersburg", "Chevy Chase", "Greenbelt", "Hyattsville",
+           "Laurel", "Columbia", "Fort Meade", "Annapolis Junction", "Hanover"],
+}
+METRO_ALIASES = {
+    "sf bay area": "Bay Area", "san francisco bay area": "Bay Area", "los angeles area": "Los Angeles",
+    "new york city": "NYC", "washington dc": "DC", "washington, dc": "DC", "d.c.": "DC",
+}
+_STATE_CODES = {name.lower(): code for code, name in STATES.items()}
+
+
+def _places(location: str) -> list[tuple[str, str]]:
+    """'San Jose, CA, United States; New York, NY' -> [('san jose', 'CA'), ('new york', 'NY')]."""
+    out = []
+    for part in re.split(r"[;\n]", location):
+        bits = [b.strip() for b in part.split(",") if b.strip()]
+        if bits and bits[-1].lower() in ("united states", "us", "usa"):
+            bits = bits[:-1]
+        if len(bits) >= 2:
+            st = bits[-1].upper() if bits[-1].upper() in STATES else _STATE_CODES.get(bits[-1].lower(), "")
+            out.append((bits[0].lower(), st))
+    return out
+
+
+def _metro_cities(name: str) -> set[tuple[str, str]]:
+    state, cities = METROS[name]
+    pairs = {(c.lower(), state) for c in cities}
+    if name == "DC":
+        pairs |= {(c.lower(), st) for st, cs in DC_SUBURBS.items() for c in cs}
+    return pairs
+
+
+def location_match(location: str, wanted: list[str]) -> str | None:
+    """Return the first configured location the posting is in.
+
+    Entries can be a state code ("CT"), a metro from METROS ("Bay Area"), or a city ("Denver, CO").
+    """
+    places = _places(location)
+    for entry in wanted:
+        key = entry.strip()
+        metro = METRO_ALIASES.get(key.lower()) or next((m for m in METROS if m.lower() == key.lower()), None)
+        if metro:
+            cities = _metro_cities(metro)
+            if any(p in cities for p in places):
+                return metro
+        elif key.upper() in STATES:
+            code = key.upper()
+            if any(st == code for _, st in places) or re.search(rf"\b{re.escape(STATES[code])}\b", location, re.I):
+                return code
+        else:
+            city, _, st = (x.strip() for x in key.partition(","))
+            if any(c == city.lower() and (not st or s == st.upper()) for c, s in places):
+                return key
     return None
 
 
@@ -99,7 +175,7 @@ class Criteria:
 class Match:
     posting: Posting
     hourly: float | None
-    state: str | None
+    area: str | None
     priority: str | None
     size: int
     reasons: list[str]
@@ -107,7 +183,7 @@ class Match:
 
 def evaluate(p: Posting, c: Criteria) -> Match | None:
     hourly = parse_hourly(p.salary)
-    state = location_match(p.location, c.locations) if c.locations else None
+    area = location_match(p.location, c.locations) if c.locations else None
     priority = priority_match(p.company, c.priority_companies)
     size = parse_size(p.size)
 
@@ -115,7 +191,7 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     if c.min_hourly_pay is not None:
         checks.append(hourly is not None and hourly >= c.min_hourly_pay)
     if c.locations:
-        checks.append(state is not None)
+        checks.append(area is not None)
     if c.large_company_min_size is not None or c.priority_companies:
         big = c.large_company_min_size is not None and size >= c.large_company_min_size
         checks.append(big or priority is not None)
@@ -128,7 +204,7 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     if hourly is not None:
         reasons.append(f"${hourly:g}/hr")
     reasons.append(pretty_location(p.location) or "location unknown")
-    return Match(p, hourly, state, priority, size, reasons)
+    return Match(p, hourly, area, priority, size, reasons)
 
 
 def rank(matches: list[Match]) -> list[Match]:
@@ -138,7 +214,7 @@ def rank(matches: list[Match]) -> list[Match]:
             m.priority is None,
             m.hourly is None,
             -(m.hourly or 0),
-            m.state is None,
+            m.area is None,
             -m.size,
             -m.posting.posted_at.timestamp() if m.posting.posted_at else 0,
             _neg_date(m.posting.date),

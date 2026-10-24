@@ -11,7 +11,8 @@ The default [`config.yaml`](config.yaml) watches **Cybersecurity** plus **networ
 engineering** roles. A posting qualifies if it meets any one of these:
 
 - pays **≥ $35/hr**
-- is in **CA, MA, NY or CT**
+- is in the **Bay Area, LA, San Diego, Seattle, NYC, Boston, Chicago, Austin, DC** or
+  anywhere in **CT**
 - is at a **large company** (10,000+ employees) or a priority company, such as
   Palo Alto Networks, CrowdStrike, NVIDIA, Apple or Meta
 
@@ -109,7 +110,11 @@ criteria:
   hold. Under `all`, postings without a listed salary fail the pay check.
 - **`min_hourly_pay`**: compared against the top of the posted range. Yearly pay is
   divided by 2,080 hours.
-- **`locations`**: US state codes. "Remote, United States" doesn't count as a match.
+- **`locations`**: any mix of state codes (`CT`), metro areas (`Bay Area`, `Los Angeles`,
+  `San Diego`, `Seattle`, `NYC`, `Boston`, `Chicago`, `Austin`, `DC`) and cities
+  (`"Denver, CO"`). Metros include their suburbs, e.g. Sunnyvale counts as Bay Area and
+  McLean, VA counts as DC. The suburb lists are `METROS` in
+  [`jobscanner/filters.py`](jobscanner/filters.py). "Remote, United States" doesn't count.
 - **`priority_companies`**: ranked first, and they always count as large companies.
   Matching tolerates suffixes like "Inc." or "Corporation", but "Apple Bank" won't
   match "Apple".
