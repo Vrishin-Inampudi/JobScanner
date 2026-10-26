@@ -1,9 +1,9 @@
 # JobScanner
 
-An hourly email of new internships from [intern-list.com](https://www.intern-list.com/)
+Email alerts, every 30 minutes, of new internships from [intern-list.com](https://www.intern-list.com/)
 that are worth your time. It runs free on GitHub Actions, so nothing runs on your computer.
 
-Every hour it checks the lists you choose. It emails **every** newly posted internship
+Every 30 minutes (or however often you schedule it) it checks the lists you choose. It emails **every** newly posted internship
 that matches your rules, ranked best-first. If nothing new matches, it sends no email.
 It never sends the same posting twice.
 
@@ -43,11 +43,11 @@ then bigger companies, then the newest postings.
 GitHub emails you when a run fails, for example if intern-list.com changes its
 layout. So if it breaks, you'll hear about it instead of it going quiet.
 
-### Make the hourly runs reliable (recommended)
+### Make the scheduled runs reliable (recommended)
 
 GitHub's built-in scheduler often delays or skips runs. When this repo was new, it
 started only 2 of about 12 hourly runs. Runs you trigger yourself start right away, so
-a free outside timer gives you a dependable hourly check:
+a free outside timer gives you a dependable check:
 
 1. **Create a GitHub token that can only start this workflow.** Go to
    <https://github.com/settings/personal-access-tokens/new>, then:
@@ -58,7 +58,8 @@ a free outside timer gives you a dependable hourly check:
    - Choose a 1-year expiration, generate the token, and copy it.
 2. **Create a free account at <https://cron-job.org>,** then click *Create cronjob*:
    - **URL:** `https://api.github.com/repos/<you>/JobScanner/actions/workflows/alerts.yml/dispatches`
-   - **Schedule:** every hour, at minute 5.
+   - **Schedule:** every 30 minutes (or every hour). Set `check_every_minutes` in
+     `config.yaml` to match, so the emails say when the next check is.
    - Under *Advanced*, set **Request method** to `POST` and **Request body** to
      `{"ref":"main"}`.
    - Add these **headers**:
@@ -97,9 +98,11 @@ criteria:
   and `aiml` is ML/AI. Run `python -m jobscanner --show-lists` to see all of them.
   `title_include` and `title_exclude` keep or drop titles that contain any of the
   given words. They're case-insensitive.
-- **`max_age_hours`**: only jobs posted within this many hours are considered. Jobs are
-  never emailed twice, so with hourly runs each email holds what was posted since the
-  last run. The default of `2` leaves slack for runs that start late.
+- **`check_every_minutes`**: how often your timer runs the check. It only changes the
+  email wording, such as "Check back in 30 minutes".
+- **`max_age_hours`**: how far back the first run looks. After that, each run looks back
+  past the previous run, and jobs are never emailed twice, so each email holds what was
+  posted since the last check.
 - **`empty_email_every_hours`**: send a short "Hi, nothing has been posted!" email after
   this many hours without any email, so you know it's still checking. It's skipped if a
   list failed to load. Leave it out to turn it off.
@@ -146,9 +149,9 @@ needed.
 
 The jobs it has already seen and emailed are stored in `state/seen.json`, which the
 workflow commits back after each run. If an email fails to send, state isn't saved, so
-the next hour retries.
+the next run retries.
 
-Not affiliated with intern-list.com. Be kind to their servers: hourly is plenty.
+Not affiliated with intern-list.com. Be kind to their servers: every 30 minutes is plenty.
 
 ## License
 

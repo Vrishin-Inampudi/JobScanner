@@ -90,7 +90,7 @@ def run(
 
     matches = rank(matches)
     if matches:
-        subject, text, html_body = emailer.render(matches, now=now)
+        subject, text, html_body = emailer.render(matches, now=now, check_every=cfg.check_every_minutes)
         if test:
             subject = f"[Test] {subject}"
         if dry_run:
@@ -108,7 +108,8 @@ def run(
         elif now - state.last_email_at >= every - DUE_SLACK:
             quiet_for = (now - state.last_email_at).total_seconds() / 3600
             scanned = sum(len(p) for p in fetched.values())
-            subject, text, html_body = emailer.render_empty(quiet_for, scanned, len(fetched), now=now)
+            subject, text, html_body = emailer.render_empty(quiet_for, scanned, len(fetched), now=now,
+                                                            check_every=cfg.check_every_minutes)
             if dry_run:
                 print(f"Subject: {subject}\n\n{text}")
             else:

@@ -18,9 +18,13 @@ lists:
     title_exclude: [electrical, transmission, distribution, power, utility]
 
 # Only consider jobs posted within this many hours. Each email still only contains jobs
-# not emailed before, so with hourly runs it's effectively "posted since the last run";
-# the extra hour is slack for runs that start late.
+# not emailed before, and each run also looks back past the previous run, so this only
+# limits the very first run.
 max_age_hours: 2
+
+# How often your scheduler (cron-job.org) runs the check, in minutes. Only used for the
+# email wording ("Check back in 30 minutes"); the schedule itself lives in cron-job.org.
+check_every_minutes: 30
 
 # Send a short "Hi, nothing has been posted!" email after this many hours without any
 # email. Remove the line to turn it off.

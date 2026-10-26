@@ -110,6 +110,14 @@ def _event(m: Match, now: datetime) -> str:
 </td></tr>"""
 
 
+def _interval(minutes: int) -> str:
+    """60 -> 'an hour', 30 -> '30 minutes', 120 -> '2 hours'."""
+    if minutes % 60:
+        return f"{minutes} minutes"
+    hours = minutes // 60
+    return "an hour" if hours == 1 else f"{hours} hours"
+
+
 def _legend_dot(color: str, label: str) -> str:
     return (f'<span style="display:inline-block;margin-right:16px;white-space:nowrap">'
             f'<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{color};'
@@ -117,7 +125,7 @@ def _legend_dot(color: str, label: str) -> str:
             f'<span style="vertical-align:middle">{label}</span></span>')
 
 
-def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool) -> str:
+def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool, check_every: int) -> str:
     """The shared dark shell: header with today badge, headline, body rows, footer."""
     local = now.astimezone(DISPLAY_TZ)
     key = f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}" if legend else ""
@@ -145,7 +153,7 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
     {body}
     <tr><td style="padding:14px 2px 0;border-top:1px solid {LINE};font:400 12px/1.6 {SANS};color:{MUTED}">
       {key}
-      <div style="margin-top:8px;color:{FAINT}">Checked hourly from intern-list.com &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
+      <div style="margin-top:8px;color:{FAINT}">Checked every {_interval(check_every).removeprefix("an ")} from intern-list.com &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
     </td></tr>
   </table>
 </td></tr>
@@ -153,7 +161,7 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
 </body></html>"""
 
 
-def _html(matches: list[Match], now: datetime) -> str:
+def _html(matches: list[Match], now: datetime, check_every: int) -> str:
     noun = "internship" if len(matches) == 1 else "internships"
     return _page(
         now,
@@ -162,21 +170,23 @@ def _html(matches: list[Match], now: datetime) -> str:
         sub="Posted since your last check · best first",
         body="".join(_event(m, now) for m in matches),
         legend=True,
+        check_every=check_every,
     )
 
 
-def render(matches: list[Match], now: datetime | None = None) -> tuple[str, str, str]:
+def render(matches: list[Match], now: datetime | None = None, check_every: int = 60) -> tuple[str, str, str]:
     now = now or datetime.now(timezone.utc)
-    return _subject(matches), _text(matches, now), _html(matches, now)
+    return _subject(matches), _text(matches, now), _html(matches, now, check_every)
 
 
 EMPTY_HEADLINE = "Hi, nothing has been posted!"
-EMPTY_SUB = "Check back in an hour."
 
 
-def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | None = None) -> tuple[str, str, str]:
+def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | None = None,
+                 check_every: int = 60) -> tuple[str, str, str]:
     """The 'nothing has been posted' email, in the same template."""
     now = now or datetime.now(timezone.utc)
+    back = f"Check back in {_interval(check_every)}."
     hours = round(quiet_hours)
     detail = (f"No new matches in the last {hours} hour{'s' if hours != 1 else ''}. "
               f"This check scanned {scanned} recent posting{'s' if scanned != 1 else ''} across {lists} list{'s' if lists != 1 else ''}.")
@@ -190,8 +200,9 @@ def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | N
   </table>
 </td></tr>"""
     subject = f"Nothing new in the last {hours}h · {_clock(now)} ET"
-    text = f"{EMPTY_HEADLINE}\n{EMPTY_SUB}\n\n{detail}\n"
-    return subject, text, _page(now, f"{EMPTY_HEADLINE} {EMPTY_SUB}", EMPTY_HEADLINE, EMPTY_SUB, slot, legend=False)
+    text = f"{EMPTY_HEADLINE}\n{back}\n\n{detail}\n"
+    return subject, text, _page(now, f"{EMPTY_HEADLINE} {back}", EMPTY_HEADLINE, back, slot,
+                                legend=False, check_every=check_every)
 
 
 def send(subject: str, text: str, html_body: str, env=os.environ) -> None:

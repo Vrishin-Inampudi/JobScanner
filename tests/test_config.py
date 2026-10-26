@@ -16,6 +16,7 @@ def test_repo_config_loads():
     assert cfg.max_age_hours == 2
     assert cfg.empty_email_every_hours == 5
     assert cfg.quiet_hours == (0, 4)
+    assert cfg.check_every_minutes == 30
 
 
 def test_list_spec_wants():

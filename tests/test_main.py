@@ -193,6 +193,23 @@ def test_quiet_email_after_5_hours_of_nothing(site, paths):
     assert len(outbox) == 1
 
 
+def test_half_hourly_runs(site, paths):
+    _quiet_config(paths, "empty_email_every_hours: 5\ncheck_every_minutes: 30\n")
+    outbox = Outbox()
+    go(paths, outbox)                                      # starts the clock
+    for half_hours in range(1, 10):                        # every 30 min for 4.5h: nothing yet
+        go(paths, outbox, now=NOW + timedelta(minutes=30 * half_hours))
+    assert outbox == []
+    go(paths, outbox, now=NOW + timedelta(hours=5))        # 5h: the "nothing" email
+    assert len(outbox) == 1 and "Check back in 30 minutes." in outbox[0][2]
+    assert "Checked every 30 minutes" in outbox[0][2]
+    site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=-310)]   # posted at +5h10m
+    go(paths, outbox, now=NOW + timedelta(hours=5, minutes=30))
+    assert len(outbox) == 2 and "jobs/info/nv" in outbox[1][1]   # the next half-hour picks it up
+    go(paths, outbox, now=NOW + timedelta(hours=6))
+    assert len(outbox) == 2                                 # not re-sent
+
+
 def test_job_email_restarts_the_quiet_clock(site, paths):
     _quiet_config(paths, "empty_email_every_hours: 5\n")
     outbox = Outbox()

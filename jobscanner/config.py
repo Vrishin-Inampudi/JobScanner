@@ -30,6 +30,7 @@ class Config:
     max_age_hours: float = 24
     empty_email_every_hours: float | None = None
     quiet_hours: tuple[int, int] | None = None  # [start, end) hours, Eastern time
+    check_every_minutes: int = 60                # how often the scheduler runs it; used in the email copy
 
 
 def load_config(path: str | Path) -> Config:
@@ -59,5 +60,9 @@ def load_config(path: str | Path) -> Config:
         if not (isinstance(quiet, list) and len(quiet) == 2 and all(isinstance(h, int) and 0 <= h <= 24 for h in quiet)):
             raise ValueError(f"{path}: 'quiet_hours' must be [start, end] hours 0-24, got {quiet!r}")
         quiet = (quiet[0], quiet[1])
+    check_every = raw.get("check_every_minutes", 60)
+    if not isinstance(check_every, int) or check_every <= 0:
+        raise ValueError(f"{path}: 'check_every_minutes' must be a positive whole number, got {check_every!r}")
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
-                  empty_email_every_hours=float(every) if every else None, quiet_hours=quiet)
+                  empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
+                  check_every_minutes=check_every)
