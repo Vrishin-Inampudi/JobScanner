@@ -159,6 +159,30 @@ def test_send_requires_secrets():
         send("s", "t", "h", env={})
 
 
+def test_github_list_is_checked_and_deduped_with_jobright(site, paths, monkeypatch):
+    Path(paths[0]).write_text(CONFIG.replace("lists:\n", "lists:\n  - key: gh\n    repo: SimplifyJobs/Summer2027-Internships\n    title_include: [security]\n", 1))
+    gh = [
+        _posting(list_key="gh", row_id="g1", company="NVIDIA", title="Security Intern dup",
+                 apply_url="https://jobs.example.com/g1", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+        _posting(list_key="gh", row_id="g2", company="Acme", title="Security Intern SF",
+                 location="SF", apply_url="https://jobs.example.com/g2", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+        _posting(list_key="gh", row_id="g3", company="Acme", title="Security Intern TX",
+                 apply_url="https://jobs.example.com/g3", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+    ]
+    calls = []
+    monkeypatch.setattr(source, "fetch_github_list", lambda s, repo, key, now=None: calls.append(repo) or gh)
+    site["cs"] = [posting("nv", company="NVIDIA", title="Security Intern dup")]   # same job on jobright
+    outbox = Outbox()
+    go(paths, outbox)
+    assert calls == ["SimplifyJobs/Summer2027-Internships"]
+    text = outbox[0][1]
+    assert text.count("Security Intern dup") == 1 and "jobs/info/nv" in text      # sent once
+    assert "jobs.example.com/g2" in text and "via SimplifyJobs GitHub list" in text and "posted Oct 26" in text
+    assert "jobs.example.com/g3" not in text                                     # Austin, no pay: doesn't qualify
+    go(paths, outbox, now=NOW + timedelta(minutes=30))
+    assert len(outbox) == 1                                                      # not re-sent
+
+
 def test_test_email_sends_last_day_without_touching_state(site, paths):
     site["cs"] = [posting("recent", company="NVIDIA"), posting("today", company="NVIDIA", minutes_ago=20 * 60)]
     go(paths, Outbox())  # normal run emails "recent" and records it

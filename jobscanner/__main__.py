@@ -56,19 +56,23 @@ def run(
     if not preview and state.last_run_at:
         # Cover everything since the last full run (quiet hours, skipped runs).
         since = max(min(since, state.last_run_at - CATCH_UP_SLACK), now - MAX_CATCH_UP)
-    available = source.fetch_list_map(session)
+    available = source.fetch_list_map(session) if any(not s.repo for s in cfg.lists) else {}
 
     fetched: dict[str, list[source.Posting]] = {}
     failures: list[str] = []
     matches: list[Match] = []
     batch_keys: set[str] = set()
 
-    for spec in cfg.lists:
-        if spec.key not in available:
+    # intern-list first: when a job is on both, its copy has pay and an exact posting time.
+    for spec in sorted(cfg.lists, key=lambda s: bool(s.repo)):
+        if not spec.repo and spec.key not in available:
             failures.append(f"unknown list '{spec.key}' (available: {', '.join(sorted(available))})")
             continue
         try:
-            postings = source.fetch_jobs(session, available[spec.key], spec.key, since, now=now)
+            if spec.repo:
+                postings = source.fetch_github_list(session, spec.repo, spec.key, now=now)
+            else:
+                postings = source.fetch_jobs(session, available[spec.key], spec.key, since, now=now)
         except Exception as e:  # keep going so other lists still get checked
             failures.append(f"list '{spec.key}': {e}")
             continue
@@ -85,8 +89,9 @@ def run(
                 matches.append(m)
                 batch_keys.update(p.job_keys)
                 kept += 1
+        window = source.GITHUB_LOOKBACK if spec.repo else now - since
         log.info("list '%s': %d posted in the last %.1fh, %d new, %d qualify",
-                 spec.key, len(postings), (now - since).total_seconds() / 3600, len(new), kept)
+                 spec.key, len(postings), window.total_seconds() / 3600, len(new), kept)
 
     matches = rank(matches)
     if matches:

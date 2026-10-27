@@ -9,7 +9,8 @@ ROOT = Path(__file__).parent.parent
 
 def test_repo_config_loads():
     cfg = load_config(ROOT / "config.yaml")
-    assert [l.key for l in cfg.lists] == ["cs", "swe", "eng"]
+    assert [l.key for l in cfg.lists] == ["cs", "swe", "eng", "github"]
+    assert cfg.lists[-1].repo == "SimplifyJobs/Summer2027-Internships"
     assert cfg.criteria.min_hourly_pay == 35
     assert cfg.criteria.locations[0] == "Bay Area" and "CT" in cfg.criteria.locations
     assert "NVIDIA" in cfg.criteria.priority_companies

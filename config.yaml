@@ -16,6 +16,13 @@ lists:
   - key: eng
     title_include: [network engineer, networking, network security, network infrastructure, noc]
     title_exclude: [electrical, transmission, distribution, power, utility]
+  # A community GitHub list of brand-name internships (any key name; `repo` makes it a
+  # GitHub list). No pay or company size there, so these qualify by location or priority company.
+  # Bump the repo name each season, e.g. Summer2028-Internships.
+  - key: github
+    repo: SimplifyJobs/Summer2027-Internships
+    title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team]
+    title_exclude: [physical security, social security]
 
 # Only consider jobs posted within this many hours. Each email still only contains jobs
 # not emailed before, and each run also looks back past the previous run, so this only

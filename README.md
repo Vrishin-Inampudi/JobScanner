@@ -98,6 +98,11 @@ criteria:
   and `aiml` is ML/AI. Run `python -m jobscanner --show-lists` to see all of them.
   `title_include` and `title_exclude` keep or drop titles that contain any of the
   given words. They're case-insensitive.
+- **GitHub lists**: a list entry with `repo:` reads a community internship repo instead,
+  such as `SimplifyJobs/Summer2027-Internships`. Any repo with
+  `.github/scripts/listings.json` in that format works. Those lists have no pay or
+  company size, so their jobs qualify by location or priority company. A job that's on
+  both lists is sent once, using intern-list's copy. Update the repo name each season.
 - **`check_every_minutes`**: how often your timer runs the check. It only changes the
   email wording, such as "Check back in 30 minutes".
 - **`max_age_hours`**: how far back the first run looks. After that, each run looks back
@@ -145,7 +150,8 @@ intern-list.com names its lists and shows each one in a table embedded from
 jobright.ai. [`jobscanner/source.py`](jobscanner/source.py) reads the list names from
 the site, then reads each list's newest jobs from the same public jobright.ai feed the
 table uses, page by page until it passes `max_age_hours`. No account or API key is
-needed.
+needed. GitHub lists are read from the repo's public `listings.json`, looking back
+three days because those listings are often dated by day only.
 
 The jobs it has already seen and emailed are stored in `state/seen.json`, which the
 workflow commits back after each run. If an email fails to send, state isn't saved, so

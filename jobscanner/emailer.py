@@ -71,10 +71,14 @@ def _text(matches: list[Match], now: datetime) -> str:
     parts = []
     for m in matches:
         p = m.posting
-        facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}") if x)
+        facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}", _via(p)) if x)
         why = ", ".join(label for label, _ in _tags(m))
         parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\nApply: {p.apply_url}\n")
     return "\n".join(parts)
+
+
+def _via(p) -> str:
+    return "" if p.source == "intern-list" else f"via {p.source} GitHub list"
 
 
 def _event(m: Match, now: datetime) -> str:
@@ -82,10 +86,10 @@ def _event(m: Match, now: datetime) -> str:
     e = lambda s: html.escape(str(s), quote=True)
     p = m.posting
     c = TOP if m.priority else OTHER
-    when = f"{_clock(p.posted_at)} · {_age(m, now)}" if p.posted_at else p.date
+    when = f"{_clock(p.posted_at)} · {_age(m, now)}" if p.posted_at else f"Posted {p.date}"
     facts = " &nbsp;·&nbsp; ".join(
         f'<span style="white-space:nowrap">{e(x)}</span>'
-        for x in (p.company, pretty_location(p.location), p.work_model) if x
+        for x in (p.company, pretty_location(p.location), p.work_model, _via(p)) if x
     )
     tags = "".join(
         f'<span style="display:inline-block;margin:0 6px 6px 0;padding:3px 9px;border-radius:6px;'

@@ -1,7 +1,10 @@
-"""Fetch internship lists shown on intern-list.com.
+"""Fetch internship lists.
 
 intern-list.com names its lists (``?k=cs`` = Cybersecurity) and embeds each one from
 jobright.ai, whose JSON API returns jobs newest first with a posting timestamp.
+
+Community GitHub lists (e.g. SimplifyJobs/Summer2027-Internships) publish every listing
+as JSON in the repo, which ``fetch_github_list`` reads.
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ class Posting:
     work_model: str | None
     apply_url: str
     posted_at: datetime | None = None  # UTC
+    source: str = "intern-list"
 
     @property
     def uid(self) -> str:
@@ -170,3 +174,63 @@ def fetch_jobs(session: requests.Session, category: str, list_key: str, since: d
         if len(raw) < PAGE_SIZE or not batch or min(p.posted_at for p in batch) < since:
             break
     return postings
+
+
+# GitHub lists: one JSON file of every listing, kept by the repo's maintainers.
+GITHUB_LISTINGS = "https://raw.githubusercontent.com/{repo}/{branch}/.github/scripts/listings.json"
+GITHUB_BRANCHES = ("dev", "main")
+# Listings are often stamped with just the day (midnight UTC) and added a day or two
+# after that, so look back a few days; already-seen jobs are skipped by state anyway.
+GITHUB_LOOKBACK = timedelta(days=3)
+_REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def parse_github_listings(items: list, list_key: str, repo: str, since: datetime) -> list[Posting]:
+    """Active listings posted at or after ``since``, newest first."""
+    if not isinstance(items, list):
+        raise SourceError(f"list '{list_key}' ({repo}): listings.json isn't a list")
+    source = repo.split("/")[0]
+    postings = []
+    for job in items:
+        if not isinstance(job, dict) or not job.get("active") or job.get("is_visible") is False:
+            continue
+        stamp = job.get("date_posted")
+        url = str(job.get("url") or "")
+        if not isinstance(stamp, (int, float)) or not url.startswith("https://"):
+            continue
+        when = datetime.fromtimestamp(stamp, timezone.utc)
+        if when < since:
+            continue
+        day_only = stamp % 86400 == 0  # no time of day, so don't show one
+        postings.append(
+            Posting(
+                list_key=list_key,
+                row_id=str(job.get("id") or url),
+                title=str(job.get("title") or "").strip(),
+                company=str(job.get("company_name") or "").strip(),
+                location="; ".join(str(l) for l in job.get("locations") or []),
+                salary="",
+                size=None,
+                date=f"{when:%b} {when.day}",
+                work_model=None,
+                apply_url=url,
+                posted_at=None if day_only else when,
+                source=source,
+            )
+        )
+    postings.sort(key=lambda p: p.posted_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return postings
+
+
+def fetch_github_list(session: requests.Session, repo: str, list_key: str, now: datetime | None = None) -> list[Posting]:
+    """Active listings from a GitHub internship repo posted in the last few days."""
+    if not _REPO.match(repo):
+        raise SourceError(f"list '{list_key}': repo must look like owner/name, got {repo!r}")
+    now = now or datetime.now(timezone.utc)
+    for branch in GITHUB_BRANCHES:
+        resp = session.get(GITHUB_LISTINGS.format(repo=repo, branch=branch), timeout=TIMEOUT)
+        if resp.status_code == 404:
+            continue
+        resp.raise_for_status()
+        return parse_github_listings(resp.json(), list_key, repo, now - GITHUB_LOOKBACK)
+    raise SourceError(f"list '{list_key}': no .github/scripts/listings.json in {repo}")

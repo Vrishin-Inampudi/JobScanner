@@ -83,6 +83,10 @@ METRO_PREFS = ["Bay Area", "Los Angeles", "San Diego", "Seattle", "NYC", "Boston
     ("Remote, United States", None),
     ("Multi Location\nDallas, TX, United States\nSeattle, WA, United States", "Seattle"),
     ("Atlanta, GA; Palo Alto, CA", "Bay Area"),
+    ("SF; Pittsburgh, PA", "Bay Area"),
+    ("NYC", "NYC"),
+    ("LA", "Los Angeles"),
+    ("Remote in USA", None),
 ])
 def test_metro_match(loc, expected):
     assert location_match(loc, METRO_PREFS) == expected

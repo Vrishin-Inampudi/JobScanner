@@ -87,6 +87,9 @@ METRO_ALIASES = {
     "new york city": "NYC", "washington dc": "DC", "washington, dc": "DC", "d.c.": "DC",
 }
 _STATE_CODES = {name.lower(): code for code, name in STATES.items()}
+# Shorthand some lists use for a whole location ("SF", "NYC").
+_SHORT_PLACES = {"sf": ("san francisco", "CA"), "la": ("los angeles", "CA"), "nyc": ("new york", "NY"),
+                 "dc": ("washington", "DC")}
 
 
 def _places(location: str) -> list[tuple[str, str]]:
@@ -94,6 +97,9 @@ def _places(location: str) -> list[tuple[str, str]]:
     out = []
     for part in re.split(r"[;\n]", location):
         bits = [b.strip() for b in part.split(",") if b.strip()]
+        if len(bits) == 1 and bits[0].lower() in _SHORT_PLACES:
+            out.append(_SHORT_PLACES[bits[0].lower()])
+            continue
         if bits and bits[-1].lower() in ("united states", "us", "usa"):
             bits = bits[:-1]
         if len(bits) >= 2:

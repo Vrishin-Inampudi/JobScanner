@@ -15,6 +15,7 @@ class ListSpec:
     key: str
     title_include: list[str] = field(default_factory=list)
     title_exclude: list[str] = field(default_factory=list)
+    repo: str | None = None  # a GitHub internship repo (owner/name) instead of an intern-list.com list
 
     def wants(self, title: str) -> bool:
         t = title.lower()
