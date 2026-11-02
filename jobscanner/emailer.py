@@ -74,14 +74,16 @@ def _subject(matches: list[Match]) -> str:
     return f"🎯 {len(matches)} new {noun} — {names}"
 
 
-def _text(matches: list[Match], now: datetime) -> str:
+def _text(matches: list[Match], now: datetime, links=None) -> str:
     parts = []
     for m in matches:
         p = m.posting
         facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}",
                                          _timing(p), _via(p)) if x)
         why = ", ".join(label for label, _ in _tags(m))
-        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\nApply: {p.apply_url}\n")
+        track = (links or (lambda _: None))(p)
+        mark = f"Mark applied: {track['applied']}\nNot interested: {track['skip']}\n" if track else ""
+        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\nApply: {p.apply_url}\n{mark}")
     return "\n".join(parts)
 
 
@@ -89,7 +91,7 @@ def _via(p) -> str:
     return "" if p.source == "intern-list" else f"via {p.source}"
 
 
-def _event(m: Match, now: datetime) -> str:
+def _event(m: Match, now: datetime, links=None) -> str:
     """One job, drawn like a calendar event block."""
     e = lambda s: html.escape(str(s), quote=True)
     p = m.posting
@@ -116,7 +118,7 @@ def _event(m: Match, now: datetime) -> str:
       <div style="font:400 13px/1.55 {SANS};color:{MUTED};margin-bottom:10px">{facts}</div>
       <div>{tags}</div>
       <a href="{e(p.apply_url)}" style="display:inline-block;margin-top:4px;padding:7px 14px;border-radius:7px;
-         background:#2A2A2A;border:1px solid #3A3A3A;color:{TEXT};font:600 13px/1 {SANS};text-decoration:none">Apply &rarr;</a>
+         background:#2A2A2A;border:1px solid #3A3A3A;color:{TEXT};font:600 13px/1 {SANS};text-decoration:none">Apply &rarr;</a>{_track(p, links)}
     </td></tr>
   </table>
 </td></tr>"""
@@ -128,6 +130,16 @@ def _interval(minutes: int) -> str:
         return f"{minutes} minutes"
     hours = minutes // 60
     return "an hour" if hours == 1 else f"{hours} hours"
+
+
+def _track(p, links) -> str:
+    """'✓ Applied' and 'Not interested' links that record to your tracker, when it's set up."""
+    track = links(p) if links else None
+    if not track:
+        return ""
+    style = f"display:inline-block;margin:4px 0 0 12px;color:{MUTED};font:500 13px/1 {SANS};text-decoration:none"
+    return (f'<a href="{html.escape(track["applied"], quote=True)}" style="{style}">&#10003; Applied</a>'
+            f'<a href="{html.escape(track["skip"], quote=True)}" style="{style}">Not interested</a>')
 
 
 def _legend_dot(color: str, label: str) -> str:
@@ -173,22 +185,28 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
 </body></html>"""
 
 
-def _html(matches: list[Match], now: datetime, check_every: int) -> str:
+def _html(matches: list[Match], now: datetime, check_every: int, links=None, digest: bool = False) -> str:
     noun = "internship" if len(matches) == 1 else "internships"
     return _page(
         now,
         preheader=", ".join(dict.fromkeys(m.posting.company for m in matches)),
-        headline=f"{len(matches)} new {noun}",
-        sub="Posted since your last check · best first",
-        body="".join(_event(m, now) for m in matches),
+        headline=f"{len(matches)} more {noun}" if digest else f"{len(matches)} new {noun}",
+        sub=("Today's digest: matches that weren't urgent enough to send right away · best first" if digest
+             else "Posted since your last check · best first"),
+        body="".join(_event(m, now, links) for m in matches),
         legend=True,
         check_every=check_every,
     )
 
 
-def render(matches: list[Match], now: datetime | None = None, check_every: int = 60) -> tuple[str, str, str]:
+def render(matches: list[Match], now: datetime | None = None, check_every: int = 60, links=None,
+           digest: bool = False) -> tuple[str, str, str]:
+    """The job email. ``links(posting)`` gives tracker links; ``digest`` words it as the daily digest."""
     now = now or datetime.now(timezone.utc)
-    return _subject(matches), _text(matches, now), _html(matches, now, check_every)
+    subject = _subject(matches)
+    if digest:
+        subject = "☀️ Daily digest: " + subject.removeprefix("🎯 ").replace(" new ", " more ", 1)
+    return subject, _text(matches, now, links), _html(matches, now, check_every, links, digest)
 
 
 EMPTY_HEADLINE = "Hi, nothing has been posted!"

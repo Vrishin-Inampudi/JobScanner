@@ -76,6 +76,29 @@ a free outside timer gives you a dependable check:
 The built-in schedule stays on as a backup. If both fire close together, the second
 run just finds nothing new.
 
+### Track your applications (optional)
+
+Each job in the email can have **✓ Applied** and **Not interested** links. A click is
+logged as a row in a private Google Sheet, which becomes your application tracker, with
+a Notes column you can fill in. Jobs you've marked never come back. "Not interested" also
+mutes the same role at that company in other cities.
+
+1. Create a Google Sheet, e.g. "Internship applications".
+2. Open *Extensions → Apps Script*, replace the code with
+   [`tracker/Code.gs`](tracker/Code.gs), and save.
+3. Make a secret token and save it as a GitHub secret. On a Mac, this command does both
+   and copies the token to your clipboard:
+   `t=$(openssl rand -hex 16); gh secret set TRACKER_TOKEN -b "$t"; printf %s "$t" | pbcopy`
+4. In Apps Script, open *Project Settings → Script properties*, then add a property
+   named `TOKEN` and paste the token as its value.
+5. Click *Deploy → New deployment → Web app*. Set *Execute as* to **Me** and
+   *Who has access* to **Anyone**, then click *Deploy*. Approve the access request,
+   then copy the web app URL.
+6. Add that URL as the GitHub secret `TRACKER_URL`.
+
+Each link carries the token, so only your emails can write to the Sheet. If the tracker
+is down, alerts keep working.
+
 ## Change what it looks for
 
 Everything lives in [`config.yaml`](config.yaml), and no code changes are needed.
@@ -119,6 +142,12 @@ criteria:
   roles aimed at other graduating classes, and `skip_phd_only: true` skips PhD-only
   roles. Each email card also shows the start term and target grad class when the
   posting gives them, plus tags like "Needs clearance" or "US citizens".
+- **`digest_hour`**: send less-urgent matches as one morning email at this hour
+  (Eastern). Matches at top companies, or paying at least `min_hourly_pay`, still arrive
+  right away. Leave it out to get everything right away.
+- **`company_needs_location`**: when `true`, top-company and large-company matches must
+  also be in your `locations`, remote, or posted without a specific city. Matches on pay
+  alone can still be anywhere.
 - **`check_every_minutes`**: how often your timer runs the check. It only changes the
   email wording, such as "Check back in 30 minutes".
 - **`max_age_hours`**: how far back the first run looks. After that, each run looks back

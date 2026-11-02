@@ -131,6 +131,11 @@ max_age_hours: 2
 # email wording ("Check back in 30 minutes"); the schedule itself lives in cron-job.org.
 check_every_minutes: 30
 
+# Daily digest, at this hour (Eastern). Top-company matches and ones paying at least
+# min_hourly_pay are emailed right away; the rest wait for this one morning email.
+# Remove the line to get everything right away.
+digest_hour: 8
+
 # Send a short "Hi, nothing has been posted!" email after this many hours without any
 # email. Remove the line to turn it off.
 empty_email_every_hours: 5
@@ -147,6 +152,9 @@ criteria:
   # State codes (CT), metro areas (Bay Area, Los Angeles, San Diego, Seattle, NYC, Boston,
   # Chicago, Austin, DC — suburbs included, see METROS in jobscanner/filters.py) or cities ("Denver, CO").
   locations: [Bay Area, Los Angeles, San Diego, Seattle, NYC, Boston, Chicago, Austin, DC, CT]
+  # Top-company and large-company matches must also be in `locations` (or remote / no city
+  # given). Matches on pay alone can be anywhere.
+  company_needs_location: true
   large_company_min_size: 10000 # employees, from the site's size buckets
   priority_companies:           # ranked first; also count as "large company". Every company
                                 # under company_sites is one too, so only others go here.

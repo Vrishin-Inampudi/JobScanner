@@ -50,6 +50,7 @@ class Config:
     empty_email_every_hours: float | None = None
     quiet_hours: tuple[int, int] | None = None  # [start, end) hours, Eastern time
     check_every_minutes: int = 60                # how often the scheduler runs it; used in the email copy
+    digest_hour: int | None = None               # ET hour for the daily digest of non-urgent matches
 
 
 def load_config(path: str | Path) -> Config:
@@ -80,6 +81,7 @@ def load_config(path: str | Path) -> Config:
         match=match,
         graduation=graduation,
         skip_phd_only=bool(elig.get("skip_phd_only", False)),
+        company_needs_location=bool(crit.get("company_needs_location", False)),
     )
     max_age = raw.get("max_age_hours", 24)
     if not isinstance(max_age, (int, float)) or max_age <= 0:
@@ -95,9 +97,12 @@ def load_config(path: str | Path) -> Config:
     check_every = raw.get("check_every_minutes", 60)
     if not isinstance(check_every, int) or check_every <= 0:
         raise ValueError(f"{path}: 'check_every_minutes' must be a positive whole number, got {check_every!r}")
+    digest = raw.get("digest_hour")
+    if digest is not None and not (isinstance(digest, int) and 0 <= digest <= 23):
+        raise ValueError(f"{path}: 'digest_hour' must be an hour 0-23, got {digest!r}")
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
-                  check_every_minutes=check_every)
+                  check_every_minutes=check_every, digest_hour=digest)
 
 
 def _company_sites(path, section: dict) -> list[ListSpec]:

@@ -58,6 +58,18 @@ class Posting:
     start_time: str = ""      # when the internship starts, e.g. "2027-May"
     qualifications: str = ""  # requirements text, checked for PhD-only / clearance / citizenship
 
+    def to_dict(self) -> dict:
+        d = dict(self.__dict__)
+        d["posted_at"] = self.posted_at.isoformat() if self.posted_at else None
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Posting":
+        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        if known.get("posted_at"):
+            known["posted_at"] = datetime.fromisoformat(known["posted_at"])
+        return cls(**known)
+
     @property
     def uid(self) -> str:
         return f"{self.list_key}:{self.row_id}"

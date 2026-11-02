@@ -31,11 +31,14 @@ class State:
     """
 
     def __init__(self, lists: dict[str, dict[str, str]] | None = None, emailed: dict[str, str] | None = None,
-                 last_run_at: datetime | None = None, last_email_at: datetime | None = None):
+                 last_run_at: datetime | None = None, last_email_at: datetime | None = None,
+                 pending: list[Posting] | None = None, last_digest_on: str | None = None):
         self.lists = lists or {}
         self.emailed = emailed or {}
         self.last_run_at = last_run_at      # last run where every list was checked
         self.last_email_at = last_email_at  # last email of any kind (jobs or "nothing posted")
+        self.pending = pending or []        # matches waiting for the daily digest
+        self.last_digest_on = last_digest_on  # ET date of the last digest check
 
     @classmethod
     def load(cls, path: str | Path) -> "State":
@@ -50,7 +53,9 @@ class State:
         elif raw.get("version") != VERSION:
             return cls()
         when = lambda k: datetime.fromisoformat(raw[k]) if raw.get(k) else None
-        return cls(raw.get("lists"), raw.get("emailed"), when("last_run_at"), when("last_email_at"))
+        pending = [Posting.from_dict(d) for d in raw.get("pending") or []]
+        return cls(raw.get("lists"), raw.get("emailed"), when("last_run_at"), when("last_email_at"),
+                   pending, raw.get("last_digest_on"))
 
     def diff(self, list_key: str, postings: list[Posting]) -> list[Posting]:
         """Postings not seen before in this list."""
@@ -82,5 +87,6 @@ class State:
         p.parent.mkdir(parents=True, exist_ok=True)
         data = {"version": VERSION, "lists": self.lists, "emailed": emailed,
                 "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
-                "last_email_at": self.last_email_at.isoformat() if self.last_email_at else None}
+                "last_email_at": self.last_email_at.isoformat() if self.last_email_at else None,
+                "pending": [p.to_dict() for p in self.pending], "last_digest_on": self.last_digest_on}
         p.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")

@@ -212,6 +212,75 @@ def test_only_title_matched_jobs_are_remembered(site, paths):
     assert any("net" in k for k in seen) and not any("fe" in k or "frontend" in k for k in seen)
 
 
+DIGEST = "digest_hour: 8\n"
+NOON_ET = datetime(2026, 10, 22, 16, 0, tzinfo=timezone.utc)
+
+
+def test_urgent_now_rest_in_morning_digest(site, paths):
+    _quiet_config(paths, DIGEST)
+    at = lambda row_id, **kw: _posting(row_id=row_id, apply_url=f"https://jobright.ai/jobs/info/{row_id}",
+                                       title=f"Security Intern {row_id}", posted_at=NOON_ET - timedelta(minutes=5), **kw)
+    site["cs"] = [
+        at("nv", company="NVIDIA"),                       # top company: urgent
+        at("ca", location="San Jose, CA"),                # location only: can wait
+        at("pay", salary="$40 /hr"),                      # pay: urgent
+    ]
+    outbox = Outbox()
+    go(paths, outbox, now=NOON_ET)
+    go(paths, outbox, now=NOON_ET + timedelta(minutes=30))   # same day: queued jobs wait for tomorrow
+    assert len(outbox) == 1
+    assert "jobs/info/nv" in outbox[0][1] and "jobs/info/pay" in outbox[0][1] and "jobs/info/ca" not in outbox[0][1]
+    next_8am = datetime(2026, 10, 23, 12, 30, tzinfo=timezone.utc)          # 8:30 AM ET
+    go(paths, outbox, now=next_8am)
+    assert len(outbox) == 2 and outbox[1][0].startswith("☀️ Daily digest: 1 more internship")
+    assert "jobs/info/ca" in outbox[1][1]
+    go(paths, outbox, now=next_8am + timedelta(minutes=30))
+    assert len(outbox) == 2                                                  # one digest a day
+
+
+def test_company_matches_need_my_cities(site, paths):
+    _quiet_config(paths, "")
+    Path(paths[0]).write_text(Path(paths[0]).read_text().replace("  priority_companies: [NVIDIA]",
+                                                                 "  priority_companies: [NVIDIA]\n  company_needs_location: true"))
+    site["cs"] = [posting("hsv", company="NVIDIA", location="Huntsville, AL", minutes_ago=5),
+                  posting("sj", company="NVIDIA", location="San Jose, CA", minutes_ago=5),
+                  posting("rem", company="NVIDIA", location="United States", work_model="Remote", minutes_ago=5),
+                  posting("hsvpay", location="Huntsville, AL", salary="$50 /hr", minutes_ago=5)]
+    outbox = Outbox()
+    go(paths, outbox)
+    text = outbox[0][1]
+    assert "jobs/info/hsv\n" not in text and "jobs/info/sj" in text and "jobs/info/rem" in text
+    assert "jobs/info/hsvpay" in text                                       # pay alone: anywhere
+
+
+def test_tracker_marks_hide_jobs_and_links_show(site, paths, monkeypatch):
+    from jobscanner import tracker
+    monkeypatch.setenv("TRACKER_URL", "https://script.google.com/macros/s/abc/exec")
+    monkeypatch.setenv("TRACKER_TOKEN", "tok")
+    monkeypatch.setattr(tracker, "load", lambda s: tracker.Marks(muted={"nvidia|security intern muted"}))
+    site["cs"] = [posting("a", company="NVIDIA", minutes_ago=5),
+                  posting("b", company="NVIDIA", title="Security Intern muted - Austin, TX", minutes_ago=5)]
+    outbox = Outbox()
+    go(paths, outbox)
+    subject, text, html = outbox[0]
+    assert "jobs/info/a" in text and "jobs/info/b" not in text
+    assert "Mark applied: https://script.google.com/macros/s/abc/exec?" in text and "&#10003; Applied" in html
+
+
+def test_one_failing_site_does_not_stop_the_rest(site, paths, monkeypatch):
+    Path(paths[0]).write_text(CONFIG + """
+company_sites:
+  sites:
+    - {company: Cloudflare, greenhouse: cloudflare}
+""")
+    def boom(*a, **k):
+        raise RuntimeError("site down")
+    monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", boom)
+    site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
+    outbox = Outbox()
+    assert go(paths, outbox) == 1 and len(outbox) == 1
+
+
 def test_test_email_sends_last_day_without_touching_state(site, paths):
     site["cs"] = [posting("recent", company="NVIDIA"), posting("today", company="NVIDIA", minutes_ago=20 * 60)]
     go(paths, Outbox())  # normal run emails "recent" and records it

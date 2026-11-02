@@ -288,6 +288,8 @@ class Criteria:
     # Eligibility: hard filters applied before the criteria above.
     graduation: tuple[int, int] | None = None  # (year, month) you graduate
     skip_phd_only: bool = False
+    # Company matches (priority or large) must also be in `locations`, remote, or unspecific.
+    company_needs_location: bool = False
 
 
 @dataclass
@@ -299,6 +301,11 @@ class Match:
     size: int
     reasons: list[str]
     flags: list[str] = field(default_factory=list)
+
+
+def anywhere(p: Posting) -> bool:
+    """Remote, or no specific city given ('United States', 'Hybrid', '')."""
+    return (p.work_model or "").lower() == "remote" or "remote" in p.location.lower() or not _places(p.location)
 
 
 def eligible(p: Posting, c: Criteria) -> bool:
@@ -324,7 +331,8 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
         checks.append(area is not None)
     if c.large_company_min_size is not None or c.priority_companies:
         big = c.large_company_min_size is not None and size >= c.large_company_min_size
-        checks.append(big or priority is not None)
+        placed = not c.company_needs_location or area is not None or anywhere(p)
+        checks.append((big or priority is not None) and placed)
 
     ok = any(checks) if c.match == "any" else bool(checks) and all(checks)
     if not ok:
