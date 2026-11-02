@@ -163,11 +163,11 @@ def test_github_list_is_checked_and_deduped_with_jobright(site, paths, monkeypat
     Path(paths[0]).write_text(CONFIG.replace("lists:\n", "lists:\n  - key: gh\n    repo: SimplifyJobs/Summer2027-Internships\n    title_include: [security]\n", 1))
     gh = [
         _posting(list_key="gh", row_id="g1", company="NVIDIA", title="Security Intern dup",
-                 apply_url="https://jobs.example.com/g1", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+                 apply_url="https://jobs.example.com/g1", source="SimplifyJobs GitHub list", posted_at=None, date="Oct 26"),
         _posting(list_key="gh", row_id="g2", company="Acme", title="Security Intern SF",
-                 location="SF", apply_url="https://jobs.example.com/g2", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+                 location="SF", apply_url="https://jobs.example.com/g2", source="SimplifyJobs GitHub list", posted_at=None, date="Oct 26"),
         _posting(list_key="gh", row_id="g3", company="Acme", title="Security Intern TX",
-                 apply_url="https://jobs.example.com/g3", source="SimplifyJobs", posted_at=None, date="Oct 26"),
+                 apply_url="https://jobs.example.com/g3", source="SimplifyJobs GitHub list", posted_at=None, date="Oct 26"),
     ]
     calls = []
     monkeypatch.setattr(source, "fetch_github_list", lambda s, repo, key, now=None: calls.append(repo) or gh)
@@ -181,6 +181,35 @@ def test_github_list_is_checked_and_deduped_with_jobright(site, paths, monkeypat
     assert "jobs.example.com/g3" not in text                                     # Austin, no pay: doesn't qualify
     go(paths, outbox, now=NOW + timedelta(minutes=30))
     assert len(outbox) == 1                                                      # not re-sent
+
+
+def test_company_site_first_check_records_then_emails_new(site, paths, monkeypatch):
+    Path(paths[0]).write_text(CONFIG + """
+company_sites:
+  title_require: [intern]
+  sites:
+    - {company: Cloudflare, greenhouse: cloudflare}
+""")
+    jobs = [_posting(list_key="site:cloudflare", row_id="old", company="Cloudflare", title="Security Intern A",
+                     location="San Francisco, CA", apply_url="https://boards.greenhouse.io/cf/jobs/old",
+                     source="Cloudflare careers site")]
+    monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", lambda s, board, company, key, wants, now=None: list(jobs))
+    outbox = Outbox()
+    go(paths, outbox)
+    assert outbox == []                                        # first check: just records what's there
+    jobs.append(_posting(list_key="site:cloudflare", row_id="new", company="Cloudflare", title="Security Intern B",
+                         location="San Francisco, CA", apply_url="https://boards.greenhouse.io/cf/jobs/new",
+                         source="Cloudflare careers site"))
+    go(paths, outbox, now=NOW + timedelta(minutes=30))
+    assert len(outbox) == 1 and "cf/jobs/new" in outbox[0][1] and "cf/jobs/old" not in outbox[0][1]
+    assert "via Cloudflare careers site" in outbox[0][1]
+
+
+def test_only_title_matched_jobs_are_remembered(site, paths):
+    site["swe"] = [posting("fe", list_key="swe", title="Frontend Intern"), posting("net", list_key="swe", title="Network Intern")]
+    go(paths, Outbox())
+    seen = json.loads(Path(paths[1]).read_text())["lists"]["swe"]
+    assert any("net" in k for k in seen) and not any("fe" in k or "frontend" in k for k in seen)
 
 
 def test_test_email_sends_last_day_without_touching_state(site, paths):

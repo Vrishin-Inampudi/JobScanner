@@ -139,3 +139,48 @@ def test_rank_order():
     assert [m.posting.row_id for m in rank(ms)] == [
         "nvidia", "pay60_ny_big", "pay60", "pay40", "pay_unknown_ca",
     ]
+
+
+from jobscanner.filters import eligible, grad_fits, grad_window, phd_only, pretty_month, requirement_flags
+
+
+def test_grad_window_and_fit():
+    assert grad_window("2027-December / 2028-June") == (2027 * 12 + 12, 2028 * 12 + 6)
+    assert grad_window("2028") == (2028 * 12 + 1, 2028 * 12 + 12)
+    assert grad_window("") is None
+    assert grad_fits("2027-December / 2028-June", (2028, 5))
+    assert grad_fits("2027-December / 2028-June", (2028, 7))          # a month of slack
+    assert not grad_fits("2027-December / 2028-June", (2029, 5))
+    assert grad_fits("", (2029, 5)) and grad_fits("2026", None)       # unknown either side: keep it
+    assert pretty_month("2027-December / 2028-June") == "Dec 2027 / Jun 2028"
+    assert pretty_month("2027-May") == "May 2027"
+
+
+@pytest.mark.parametrize("title,quals,expected", [
+    ("PhD Research Intern, Security and Privacy - 2027", "", True),
+    ("Security Intern (BS/MS/PhD)", "", False),
+    ("Security Intern", "1. Currently pursuing a PhD in Computer Science", True),
+    ("Security Intern", "1. Pursuing a Bachelor's, Master's or PhD", False),
+    ("Security Intern", "", False),
+])
+def test_phd_only(title, quals, expected):
+    assert phd_only(posting(title=title, qualifications=quals)) is expected
+
+
+def test_requirement_flags():
+    assert requirement_flags(posting(qualifications="Must possess an active Secret clearance. U.S. citizenship required.")) \
+        == ["Needs clearance", "US citizens"]
+    assert requirement_flags(posting(qualifications="Ability to obtain a security clearance")) == ["Clearance-eligible"]
+    assert requirement_flags(posting(title="Cyber Intern (TS/SCI)")) == ["Needs clearance"]
+    assert requirement_flags(posting()) == []
+
+
+def test_eligibility_filters_before_criteria():
+    crit = Criteria(**{**CRIT.__dict__, "graduation": (2029, 5), "skip_phd_only": True})
+    nvidia = dict(company="NVIDIA")
+    assert evaluate(posting(**nvidia), crit) is not None
+    assert evaluate(posting(**nvidia, grad_time="2027-December / 2028-June"), crit) is None
+    assert evaluate(posting(**nvidia, title="PhD Security Intern"), crit) is None
+    m = evaluate(posting(**nvidia, qualifications="US citizen required"), crit)
+    assert m.flags == ["US citizens"]
+    assert eligible(posting(title="PhD Intern"), CRIT)                 # off by default

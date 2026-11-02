@@ -11,7 +11,7 @@ on:
         default: false
 
 permissions:
-  contents: write         # to commit state/seen.json
+  contents: write         # to save seen postings to the `state` branch
 
 concurrency:
   group: internship-alerts
@@ -28,6 +28,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Load seen postings
+        # Kept on its own `state` branch as a single commit, so main's history stays clean.
+        run: |
+          mkdir -p state
+          if git fetch -q --depth=1 origin state; then
+            git show FETCH_HEAD:seen.json > state/seen.json
+          fi
+          cp state/seen.json "$RUNNER_TEMP/seen.before" 2>/dev/null || true
       - name: Check for new internships
         run: python -m jobscanner ${{ inputs.test && '--test' || '' }}
         env:
@@ -37,9 +45,12 @@ jobs:
       - name: Save seen postings
         if: always()      # a list that failed still lets the others' progress be kept
         run: |
+          [ -f state/seen.json ] || exit 0
+          cmp -s state/seen.json "$RUNNER_TEMP/seen.before" && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/seen.json 2>/dev/null || exit 0
-          git diff --cached --quiet && exit 0
-          git commit -m "Update seen postings"
-          git push
+          # Replace the branch with one fresh commit: no history to pile up.
+          blob=$(git hash-object -w state/seen.json)
+          tree=$(printf '100644 blob %s\tseen.json\n' "$blob" | git mktree)
+          commit=$(git commit-tree "$tree" -m "Seen postings")
+          git push -qf origin "$commit:refs/heads/state"

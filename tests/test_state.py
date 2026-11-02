@@ -84,3 +84,12 @@ def test_same_job_relisted_with_merged_locations_is_not_new():
     merged = posting(row_id="new", company="Adobe", title="Security Intern",
                      location="Multi Location\nLehi, UT, United States\nSan Jose, CA, United States")
     assert s.diff("cs", [merged]) == []
+
+
+def test_v4_state_keeps_emailed_and_drops_seen_lists(tmp_path):
+    import json
+    p = tmp_path / "seen.json"
+    p.write_text(json.dumps({"version": 4, "lists": {"eng": {"a": "2026-10-01"}}, "emailed": {"x": "2026-10-30"},
+                             "last_run_at": "2026-11-02T10:00:00+00:00", "last_email_at": None}))
+    s = State.load(p)
+    assert s.lists == {} and s.emailed == {"x": "2026-10-30"} and s.last_run_at is not None

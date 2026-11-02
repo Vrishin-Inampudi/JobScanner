@@ -24,6 +24,25 @@ lists:
     title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team]
     title_exclude: [physical security, social security]
 
+# Check top companies' own career sites too: jobs appear there before aggregators copy
+# them. Sites only say which day a job went up, so the first check of a new site just
+# records what's there; after that you get each new job. Every site uses these filters.
+company_sites:
+  title_require: [intern, co-op]
+  title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team, firewall]
+  title_exclude: [physical security, social security]
+  sites:
+    - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
+    - {company: CrowdStrike, workday: "https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers"}
+    - {company: Cloudflare, greenhouse: cloudflare}
+    - {company: Okta, greenhouse: okta}
+    - {company: Zscaler, greenhouse: zscaler}
+
+# Skip jobs you can't take. These apply before the criteria below.
+eligibility:
+  # graduation: 2028-05   # your graduation (YYYY-MM): skips roles for other grad classes
+  skip_phd_only: true
+
 # Only consider jobs posted within this many hours. Each email still only contains jobs
 # not emailed before, and each run also looks back past the previous run, so this only
 # limits the very first run.

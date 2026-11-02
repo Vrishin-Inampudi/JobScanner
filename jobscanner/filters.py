@@ -168,6 +168,84 @@ def priority_match(company: str, names: list[str]) -> str | None:
     return None
 
 
+_MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+     "november", "december"], 1)}
+
+
+def parse_month(text: str) -> tuple[int, int | None] | None:
+    """'2027-December' -> (2027, 12); '2028' -> (2028, None); '2028-05' -> (2028, 5)."""
+    m = re.fullmatch(r"\s*(\d{4})(?:\s*-\s*([A-Za-z]+|\d{1,2}))?\s*", text or "")
+    if not m:
+        return None
+    year, month = int(m.group(1)), m.group(2)
+    if month is None:
+        return year, None
+    num = int(month) if month.isdigit() else _MONTHS.get(month.lower())
+    return (year, num) if num and 1 <= num <= 12 else None
+
+
+def grad_window(text: str) -> tuple[int, int] | None:
+    """'2027-December / 2028-June' -> earliest and latest month (as year*12+month) the role accepts."""
+    months = []
+    for part in (text or "").split("/"):
+        ym = parse_month(part)
+        if ym:
+            y, m = ym
+            months += [y * 12 + 1, y * 12 + 12] if m is None else [y * 12 + m]
+    return (min(months), max(months)) if months else None
+
+
+def grad_fits(text: str, graduation: tuple[int, int] | None, slack_months: int = 1) -> bool:
+    """Unknown windows count as a fit; otherwise your graduation must be inside it (give or take a month)."""
+    window = grad_window(text)
+    if not graduation or not window:
+        return True
+    you = graduation[0] * 12 + graduation[1]
+    return window[0] - slack_months <= you <= window[1] + slack_months
+
+
+def pretty_month(text: str) -> str:
+    """'2027-December / 2028-June' -> 'Dec 2027 / Jun 2028'."""
+    out = []
+    for part in (text or "").split("/"):
+        ym = parse_month(part)
+        if ym:
+            y, m = ym
+            out.append(f"{list(_MONTHS)[m - 1][:3].title()} {y}" if m else str(y))
+    return " / ".join(out)
+
+
+_PHD = re.compile(r"\bph\.?\s?d\b|doctoral", re.I)
+_NOT_PHD = re.compile(r"bachelor|undergrad|\bb\.?s\.?\b|\bb\.?a\.?\b|master|\bm\.?s\.?\b", re.I)
+_CLEARANCE = re.compile(r"(active|current|existing|interim)\s+(\w+\s+){0,3}clearance|"
+                        r"clearance\s+(is\s+)?required|must\s+(possess|hold|have)\s+(an?\s+)?(active\s+)?"
+                        r"(\w+\s+){0,2}clearance|ts/sci|polygraph", re.I)
+_OBTAIN_CLEARANCE = re.compile(r"(obtain|eligib\w*\s+(for|to)|able\s+to\s+(get|obtain))\s+(\w+\s+){0,3}clearance", re.I)
+_CITIZEN = re.compile(r"\bu\.?\s?s\.?\s+citizen|united states citizen", re.I)
+
+
+def phd_only(p: Posting) -> bool:
+    """A PhD role: says PhD in the title, or asks only for a PhD in its requirements."""
+    if _PHD.search(p.title) and not _NOT_PHD.search(p.title):
+        return True
+    q = p.qualifications
+    return bool(q and _PHD.search(q) and not _NOT_PHD.search(q))
+
+
+def requirement_flags(p: Posting) -> list[str]:
+    """Hard requirements worth knowing before applying."""
+    text = f"{p.title}\n{p.qualifications}"
+    flags = []
+    if _CLEARANCE.search(text):
+        flags.append("Needs clearance")
+    elif _OBTAIN_CLEARANCE.search(text):
+        flags.append("Clearance-eligible")
+    if _CITIZEN.search(text):
+        flags.append("US citizens")
+    return flags
+
+
 @dataclass
 class Criteria:
     min_hourly_pay: float | None = None
@@ -175,6 +253,9 @@ class Criteria:
     large_company_min_size: int | None = None
     priority_companies: list[str] = field(default_factory=list)
     match: str = "any"
+    # Eligibility: hard filters applied before the criteria above.
+    graduation: tuple[int, int] | None = None  # (year, month) you graduate
+    skip_phd_only: bool = False
 
 
 @dataclass
@@ -185,9 +266,18 @@ class Match:
     priority: str | None
     size: int
     reasons: list[str]
+    flags: list[str] = field(default_factory=list)
+
+
+def eligible(p: Posting, c: Criteria) -> bool:
+    if c.skip_phd_only and phd_only(p):
+        return False
+    return grad_fits(p.grad_time, c.graduation)
 
 
 def evaluate(p: Posting, c: Criteria) -> Match | None:
+    if not eligible(p, c):
+        return None
     hourly = parse_hourly(p.salary)
     area = location_match(p.location, c.locations) if c.locations else None
     priority = priority_match(p.company, c.priority_companies)
@@ -210,7 +300,7 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     if hourly is not None:
         reasons.append(f"${hourly:g}/hr")
     reasons.append(pretty_location(p.location) or "location unknown")
-    return Match(p, hourly, area, priority, size, reasons)
+    return Match(p, hourly, area, priority, size, reasons, requirement_flags(p))
 
 
 def rank(matches: list[Match]) -> list[Match]:

@@ -9,8 +9,13 @@ ROOT = Path(__file__).parent.parent
 
 def test_repo_config_loads():
     cfg = load_config(ROOT / "config.yaml")
-    assert [l.key for l in cfg.lists] == ["cs", "swe", "eng", "github"]
-    assert cfg.lists[-1].repo == "SimplifyJobs/Summer2027-Internships"
+    assert [l.key for l in cfg.lists][:4] == ["cs", "swe", "eng", "github"]
+    sites = {l.key: l for l in cfg.lists if l.is_site}
+    assert "site:nvidia" in sites and sites["site:cloudflare"].greenhouse == "cloudflare"
+    assert sites["site:nvidia"].wants("Security Engineering Intern") and not sites["site:nvidia"].wants("Security Engineer")
+    assert not sites["site:nvidia"].wants("Internal Network Engineer")
+    assert cfg.criteria.skip_phd_only
+    assert cfg.lists[3].repo == "SimplifyJobs/Summer2027-Internships"
     assert cfg.criteria.min_hourly_pay == 35
     assert cfg.criteria.locations[0] == "Bay Area" and "CT" in cfg.criteria.locations
     assert "NVIDIA" in cfg.criteria.priority_companies
@@ -33,3 +38,25 @@ def test_bad_match_value(tmp_path):
     p.write_text("lists: [cs]\nmatch: some\n")
     with pytest.raises(ValueError, match="match"):
         load_config(p)
+
+
+def test_company_sites_and_eligibility(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("""
+lists: [cs]
+company_sites:
+  title_require: [intern]
+  sites:
+    - {company: Palo Alto Networks, greenhouse: pan}
+eligibility: {graduation: 2028-05}
+""")
+    cfg = load_config(p)
+    site = cfg.lists[-1]
+    assert site.key == "site:palo-alto-networks" and site.company == "Palo Alto Networks"
+    assert cfg.criteria.graduation == (2028, 5) and not cfg.criteria.skip_phd_only
+    for bad in ("company_sites: {sites: [{company: X}]}",
+                "company_sites: {sites: [{company: X, greenhouse: a, workday: b}]}",
+                "eligibility: {graduation: 2028}"):
+        p.write_text("lists: [cs]\n" + bad + "\n")
+        with pytest.raises(ValueError):
+            load_config(p)

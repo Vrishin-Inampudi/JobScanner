@@ -103,6 +103,17 @@ criteria:
   `.github/scripts/listings.json` in that format works. Those lists have no pay or
   company size, so their jobs qualify by location or priority company. A job that's on
   both lists is sent once, using intern-list's copy. Update the repo name each season.
+- **`company_sites`**: check companies' own career sites, where jobs appear before
+  aggregators copy them. Each site needs a `company` and either a `workday` careers URL
+  (e.g. `https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`) or a
+  `greenhouse` board name (the part after `boards.greenhouse.io/`). The section's
+  `title_require`, `title_include` and `title_exclude` apply to every site. The first
+  check of a new site only records what's already posted, and after that you get each
+  new job.
+- **`eligibility`**: hard filters, applied before `criteria`. `graduation: 2028-05` skips
+  roles aimed at other graduating classes, and `skip_phd_only: true` skips PhD-only
+  roles. Each email card also shows the start term and target grad class when the
+  posting gives them, plus tags like "Needs clearance" or "US citizens".
 - **`check_every_minutes`**: how often your timer runs the check. It only changes the
   email wording, such as "Check back in 30 minutes".
 - **`max_age_hours`**: how far back the first run looks. After that, each run looks back
@@ -151,10 +162,14 @@ jobright.ai. [`jobscanner/source.py`](jobscanner/source.py) reads the list names
 the site, then reads each list's newest jobs from the same public jobright.ai feed the
 table uses, page by page until it passes `max_age_hours`. No account or API key is
 needed. GitHub lists are read from the repo's public `listings.json`, looking back
-three days because those listings are often dated by day only.
+three days because those listings are often dated by day only. Company career sites
+are read from their public Workday and Greenhouse job feeds
+([`jobscanner/sites.py`](jobscanner/sites.py)).
 
-The jobs it has already seen and emailed are stored in `state/seen.json`, which the
-workflow commits back after each run. If an email fails to send, state isn't saved, so
+The jobs it has already seen and emailed are stored in `seen.json` on the repo's `state`
+branch. Each run replaces that branch with a single fresh commit, so it never builds up
+history, and `main` only changes when you change the code or config. Only jobs that pass
+a list's title filter are remembered. If an email fails to send, state isn't saved, so
 the next run retries.
 
 Not affiliated with intern-list.com. Be kind to their servers: every 30 minutes is plenty.

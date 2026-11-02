@@ -31,7 +31,7 @@ def test_parse_keeps_active_recent_jobs_newest_first():
     got = parse_github_listings(items, "github", REPO, NOW - timedelta(days=3))
     assert [p.row_id for p in got] == ["newer", "new", "day"]
     p = got[0]
-    assert p.company == "Microsoft" and p.location == "Redmond, WA; SF" and p.source == "SimplifyJobs"
+    assert p.company == "Microsoft" and p.location == "Redmond, WA; SF" and p.source == "SimplifyJobs GitHub list"
     assert p.posted_at == NOW - timedelta(minutes=30)
     day = got[-1]
     assert day.posted_at is None and day.date == "Oct 26"   # day-only stamp: no fake time of day

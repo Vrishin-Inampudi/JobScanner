@@ -9,7 +9,7 @@ from pathlib import Path
 from .source import Posting
 
 # Bump when the meaning of stored keys changes; older files are re-baselined silently.
-VERSION = 4
+VERSION = 5
 
 # Jobs that vanish from a list are forgotten this long after they were first seen,
 # so a job that briefly drops out of a view isn't re-sent when it comes back.
@@ -43,7 +43,11 @@ class State:
         if not p.exists():
             return cls()
         raw = json.loads(p.read_text())
-        if raw.get("version") != VERSION:
+        if raw.get("version") == 4:
+            # v5 only remembers jobs that pass a list's title filter. Drop v4's much larger
+            # seen lists; what was emailed (the real guard against repeats) carries over.
+            raw = {**raw, "lists": {}}
+        elif raw.get("version") != VERSION:
             return cls()
         when = lambda k: datetime.fromisoformat(raw[k]) if raw.get(k) else None
         return cls(raw.get("lists"), raw.get("emailed"), when("last_run_at"), when("last_email_at"))

@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from . import emailer, source
+from . import emailer, sites, source
 from .config import load_config
 from .filters import Match, evaluate, rank
 from .state import State
@@ -56,20 +56,25 @@ def run(
     if not preview and state.last_run_at:
         # Cover everything since the last full run (quiet hours, skipped runs).
         since = max(min(since, state.last_run_at - CATCH_UP_SLACK), now - MAX_CATCH_UP)
-    available = source.fetch_list_map(session) if any(not s.repo for s in cfg.lists) else {}
+    available = source.fetch_list_map(session) if any(not (s.repo or s.is_site) for s in cfg.lists) else {}
 
     fetched: dict[str, list[source.Posting]] = {}
     failures: list[str] = []
     matches: list[Match] = []
     batch_keys: set[str] = set()
 
+    wanted: dict[str, list[source.Posting]] = {}
     # intern-list first: when a job is on both, its copy has pay and an exact posting time.
-    for spec in sorted(cfg.lists, key=lambda s: bool(s.repo)):
-        if not spec.repo and spec.key not in available:
+    for spec in sorted(cfg.lists, key=lambda s: (bool(s.repo), s.is_site)):
+        if not (spec.repo or spec.is_site) and spec.key not in available:
             failures.append(f"unknown list '{spec.key}' (available: {', '.join(sorted(available))})")
             continue
         try:
-            if spec.repo:
+            if spec.workday:
+                postings = sites.fetch_workday(session, spec.workday, spec.company, spec.key, spec.wants, now=now)
+            elif spec.greenhouse:
+                postings = sites.fetch_greenhouse(session, spec.greenhouse, spec.company, spec.key, spec.wants, now=now)
+            elif spec.repo:
                 postings = source.fetch_github_list(session, spec.repo, spec.key, now=now)
             else:
                 postings = source.fetch_jobs(session, available[spec.key], spec.key, since, now=now)
@@ -77,19 +82,25 @@ def run(
             failures.append(f"list '{spec.key}': {e}")
             continue
         fetched[spec.key] = postings
+        wanted[spec.key] = [p for p in postings if spec.wants(p.title)]
 
-        new = postings if preview else state.diff(spec.key, postings)
+        # Career sites only say which day a job went up, so on the first check of a site
+        # everything there is "new": record it without emailing.
+        if spec.is_site and spec.key not in state.lists and not preview:
+            log.info("list '%s': first check, recording %d current jobs without emailing", spec.key, len(wanted[spec.key]))
+            continue
+        new = wanted[spec.key] if preview else state.diff(spec.key, wanted[spec.key])
         kept = 0
         for p in new:
             already_sent = not preview and state.was_emailed(p)
-            if not spec.wants(p.title) or already_sent or any(k in batch_keys for k in p.job_keys):
+            if already_sent or any(k in batch_keys for k in p.job_keys):
                 continue
             m = evaluate(p, cfg.criteria)
             if m:
                 matches.append(m)
                 batch_keys.update(p.job_keys)
                 kept += 1
-        window = source.GITHUB_LOOKBACK if spec.repo else now - since
+        window = sites.RECENT if spec.is_site else source.GITHUB_LOOKBACK if spec.repo else now - since
         log.info("list '%s': %d posted in the last %.1fh, %d new, %d qualify",
                  spec.key, len(postings), window.total_seconds() / 3600, len(new), kept)
 
@@ -129,7 +140,8 @@ def run(
     if dry_run or test:
         log.info("%s: state not saved", "test" if test else "dry run")
     else:
-        for key, postings in fetched.items():
+        # Only jobs passing a list's title filter are remembered; the rest can never be emailed.
+        for key, postings in wanted.items():
             state.mark_seen(key, postings)
         state.mark_emailed([m.posting for m in matches])
         if not failures:

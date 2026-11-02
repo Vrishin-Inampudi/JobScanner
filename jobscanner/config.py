@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
-from .filters import Criteria
+from .filters import Criteria, parse_month
 
 
 @dataclass
@@ -16,9 +17,19 @@ class ListSpec:
     title_include: list[str] = field(default_factory=list)
     title_exclude: list[str] = field(default_factory=list)
     repo: str | None = None  # a GitHub internship repo (owner/name) instead of an intern-list.com list
+    title_require: list[str] = field(default_factory=list)  # also need one of these words ("intern" also matches internship)
+    company: str | None = None    # company career sites: the company's name
+    workday: str | None = None    # ... its Workday careers URL
+    greenhouse: str | None = None  # ... or its Greenhouse board name
+
+    @property
+    def is_site(self) -> bool:
+        return bool(self.workday or self.greenhouse)
 
     def wants(self, title: str) -> bool:
         t = title.lower()
+        if self.title_require and not any(re.search(rf"\b{re.escape(w.lower())}(s|ships?)?\b", t) for w in self.title_require):
+            return False
         if self.title_include and not any(w.lower() in t for w in self.title_include):
             return False
         return not any(w.lower() in t for w in self.title_exclude)
@@ -42,6 +53,14 @@ def load_config(path: str | Path) -> Config:
     match = raw.get("match", "any")
     if match not in ("any", "all"):
         raise ValueError(f"{path}: 'match' must be 'any' or 'all', got {match!r}")
+    lists += _company_sites(path, raw.get("company_sites") or {})
+    elig = raw.get("eligibility") or {}
+    graduation = None
+    if elig.get("graduation"):
+        ym = parse_month(str(elig["graduation"]))
+        if not ym or not ym[1]:
+            raise ValueError(f"{path}: 'eligibility.graduation' must look like 2028-05, got {elig['graduation']!r}")
+        graduation = (ym[0], ym[1])
     crit = raw.get("criteria") or {}
     criteria = Criteria(
         min_hourly_pay=crit.get("min_hourly_pay"),
@@ -49,6 +68,8 @@ def load_config(path: str | Path) -> Config:
         large_company_min_size=crit.get("large_company_min_size"),
         priority_companies=[str(s) for s in crit.get("priority_companies") or []],
         match=match,
+        graduation=graduation,
+        skip_phd_only=bool(elig.get("skip_phd_only", False)),
     )
     max_age = raw.get("max_age_hours", 24)
     if not isinstance(max_age, (int, float)) or max_age <= 0:
@@ -67,3 +88,20 @@ def load_config(path: str | Path) -> Config:
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
                   check_every_minutes=check_every)
+
+
+def _company_sites(path, section: dict) -> list[ListSpec]:
+    """Turn ``company_sites`` into lists; the title filters apply to every site."""
+    shared = dict(title_require=section.get("title_require") or [], title_include=section.get("title_include") or [],
+                  title_exclude=section.get("title_exclude") or [])
+    specs, keys = [], set()
+    for site in section.get("sites") or []:
+        company = str(site.get("company") or "").strip()
+        if not company or bool(site.get("workday")) == bool(site.get("greenhouse")):
+            raise ValueError(f"{path}: each company site needs a company and exactly one of workday/greenhouse: {site!r}")
+        key = "site:" + re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
+        if key in keys:
+            raise ValueError(f"{path}: company site {company!r} is listed twice")
+        keys.add(key)
+        specs.append(ListSpec(key=key, company=company, workday=site.get("workday"), greenhouse=site.get("greenhouse"), **shared))
+    return specs

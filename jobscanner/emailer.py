@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from .filters import Match, pretty_location
+from .filters import Match, pretty_location, pretty_month
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
@@ -57,7 +57,14 @@ def _tags(m: Match) -> list[tuple[str, bool]]:
         tags.append((f"In {m.area}", False))
     if m.size >= 10000:
         tags.append(("10k+ employees", False))
+    tags += [(flag, False) for flag in m.flags]
     return tags
+
+
+def _timing(p) -> str:
+    """'Starts May 2027 · For Dec 2027 / Jun 2028 grads'."""
+    start, grad = pretty_month(p.start_time), pretty_month(p.grad_time)
+    return " · ".join(x for x in (start and f"Starts {start}", grad and f"For {grad} grads") if x)
 
 
 def _subject(matches: list[Match]) -> str:
@@ -71,14 +78,15 @@ def _text(matches: list[Match], now: datetime) -> str:
     parts = []
     for m in matches:
         p = m.posting
-        facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}", _via(p)) if x)
+        facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}",
+                                         _timing(p), _via(p)) if x)
         why = ", ".join(label for label, _ in _tags(m))
         parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\nApply: {p.apply_url}\n")
     return "\n".join(parts)
 
 
 def _via(p) -> str:
-    return "" if p.source == "intern-list" else f"via {p.source} GitHub list"
+    return "" if p.source == "intern-list" else f"via {p.source}"
 
 
 def _event(m: Match, now: datetime) -> str:
@@ -89,7 +97,7 @@ def _event(m: Match, now: datetime) -> str:
     when = f"{_clock(p.posted_at)} · {_age(m, now)}" if p.posted_at else f"Posted {p.date}"
     facts = " &nbsp;·&nbsp; ".join(
         f'<span style="white-space:nowrap">{e(x)}</span>'
-        for x in (p.company, pretty_location(p.location), p.work_model, _via(p)) if x
+        for x in (p.company, pretty_location(p.location), p.work_model, _timing(p), _via(p)) if x
     )
     tags = "".join(
         f'<span style="display:inline-block;margin:0 6px 6px 0;padding:3px 9px;border-radius:6px;'

@@ -54,6 +54,9 @@ class Posting:
     apply_url: str
     posted_at: datetime | None = None  # UTC
     source: str = "intern-list"
+    grad_time: str = ""       # graduation dates the role is for, e.g. "2027-December / 2028-June"
+    start_time: str = ""      # when the internship starts, e.g. "2027-May"
+    qualifications: str = ""  # requirements text, checked for PhD-only / clearance / citizenship
 
     @property
     def uid(self) -> str:
@@ -144,6 +147,9 @@ def parse_jobs(payload: dict, list_key: str, pacific: bool = True) -> list[Posti
                 work_model=props.get("workModel"),
                 apply_url=JOB_URL + job_id,
                 posted_at=when,
+                grad_time=str(props.get("graduateTime") or "").strip(),
+                start_time=str(props.get("hireTime") or "").strip(),
+                qualifications=str(props.get("qualifications") or ""),
             )
         )
     return postings
@@ -189,7 +195,7 @@ def parse_github_listings(items: list, list_key: str, repo: str, since: datetime
     """Active listings posted at or after ``since``, newest first."""
     if not isinstance(items, list):
         raise SourceError(f"list '{list_key}' ({repo}): listings.json isn't a list")
-    source = repo.split("/")[0]
+    source = f"{repo.split('/')[0]} GitHub list"
     postings = []
     for job in items:
         if not isinstance(job, dict) or not job.get("active") or job.get("is_visible") is False:
