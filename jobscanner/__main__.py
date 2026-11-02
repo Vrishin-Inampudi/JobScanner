@@ -67,13 +67,14 @@ def run(
     fetched: dict[str, list[source.Posting]] = {}
     wanted: dict[str, list[source.Posting]] = {}
     failures: list[str] = []
+    site_trouble: list[str] = []  # one company's site being down shouldn't fail the run
     matches: list[Match] = []
     batch_keys: set[str] = set()
 
     for spec in specs:
         postings = results[spec.key]
         if isinstance(postings, Exception):
-            failures.append(f"list '{spec.key}': {postings}")
+            (site_trouble if spec.is_site else failures).append(f"list '{spec.key}': {postings}")
             continue
         fetched[spec.key] = postings
         wanted[spec.key] = [p for p in postings if spec.wants(p.title)]
@@ -159,6 +160,8 @@ def run(
             state.last_run_at = now
         state.save(state_path)
 
+    for f in site_trouble:
+        log.warning("%s (checking again next run)", f)
     for f in failures:
         log.error(f)
     return 1 if failures else 0

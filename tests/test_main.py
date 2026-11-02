@@ -278,7 +278,7 @@ company_sites:
     monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", boom)
     site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
     outbox = Outbox()
-    assert go(paths, outbox) == 1 and len(outbox) == 1
+    assert go(paths, outbox) == 0 and len(outbox) == 1  # a site being down is a warning, not a failed run
 
 
 def test_test_email_sends_last_day_without_touching_state(site, paths):

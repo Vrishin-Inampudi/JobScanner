@@ -206,3 +206,9 @@ def test_fetch_ashby():
              "publishedAt": "2026-11-01T10:00:00+00:00"}]
     got = fetch_ashby(GetSession([Resp({"jobs": jobs})]), "openai", "OpenAI", "site:openai", wants, now=NOW)
     assert [(p.row_id, p.location) for p in got] == [("a", "San Francisco, California; New York, New York")]
+
+
+def test_session_retries_server_errors():
+    from jobscanner.source import new_session
+    retry = new_session().get_adapter("https://bah.wd1.myworkdayjobs.com").max_retries
+    assert retry.total == 2 and 502 in retry.status_forcelist and retry.allowed_methods is None

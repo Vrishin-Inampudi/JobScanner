@@ -17,6 +17,8 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 SITE_URL = "https://www.intern-list.com/"
 JOBS_API = "https://jobright.ai/swan/mini-sites/list"
@@ -91,6 +93,13 @@ class Posting:
 def new_session() -> requests.Session:
     s = requests.Session()
     s.headers["User-Agent"] = USER_AGENT
+    # Sites blip (a 502 from a busy job board): retry a couple of times before giving up.
+    # Every request here only reads, so retrying POST searches (Workday) is safe too.
+    retry = Retry(total=2, backoff_factor=2, status_forcelist=(500, 502, 503, 504),
+                  allowed_methods=None, raise_on_status=False)
+    adapter = HTTPAdapter(max_retries=retry, pool_maxsize=16)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
     return s
 
 
