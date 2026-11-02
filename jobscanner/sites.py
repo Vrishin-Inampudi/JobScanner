@@ -1,6 +1,6 @@
 """Read internships straight from company career sites.
 
-Supported: Workday, Greenhouse and Oracle Recruiting job boards (used by many companies),
+Supported: Workday, Greenhouse, Lever, Ashby and Oracle Recruiting job boards (used by many companies),
 plus Amazon, Google and Apple's own career sites. Jobs show up here before aggregators
 copy them. Not every site gives an exact posting time, so newness comes from what we've
 seen before (see ``__main__``).
@@ -19,6 +19,7 @@ from .source import TIMEOUT, Posting, SourceError
 
 WORKDAY_PAGE = 20          # the most Workday returns per request
 WORKDAY_MAX_PAGES = 25
+WORKDAY_SEARCH_PAGES = 5
 RECENT = timedelta(days=7)  # ignore jobs older than this; they aren't news
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs"
 _BOARD = re.compile(r"^[a-z0-9_-]+$", re.I)
@@ -71,21 +72,21 @@ def fetch_workday(session: requests.Session, url: str, company: str, list_key: s
     host, tenant, site = workday_parts(url)
     api = f"https://{host}/wday/cxs/{tenant}/{site}"
 
-    def page(offset: int, facets: dict) -> dict:
-        resp = session.post(f"{api}/jobs", json={"limit": WORKDAY_PAGE, "offset": offset, "searchText": "",
+    def page(offset: int, facets: dict, search: str) -> dict:
+        resp = session.post(f"{api}/jobs", json={"limit": WORKDAY_PAGE, "offset": offset, "searchText": search,
                                                  "appliedFacets": facets}, timeout=TIMEOUT)
         resp.raise_for_status()
         return resp.json()
 
-    first = page(0, {})
+    first = page(0, {}, "")
     facet = _intern_facet(first.get("facets"))
-    if not facet:
-        raise SourceError(f"{company}: no internship filter found on {url}")
-    facets = {facet[0]: [facet[1]]}
+    # Sites without an internship filter get a keyword search instead (fewer pages: it's fuzzy).
+    facets, search = ({facet[0]: [facet[1]]}, "") if facet else ({}, "intern")
+    pages = WORKDAY_MAX_PAGES if facet else WORKDAY_SEARCH_PAGES
 
     postings = []
-    for n in range(WORKDAY_MAX_PAGES):
-        data = page(n * WORKDAY_PAGE, facets)
+    for n in range(pages):
+        data = page(n * WORKDAY_PAGE, facets, search)
         jobs = data.get("jobPostings") or []
         for job in jobs:
             title, path = str(job.get("title") or "").strip(), str(job.get("externalPath") or "")
@@ -306,6 +307,69 @@ def fetch_apple(session: requests.Session, company: str, list_key: str,
     return postings
 
 
+LEVER_API = "https://api.lever.co/v0/postings/{board}"
+ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{board}"
+
+
+def fetch_lever(session: requests.Session, board: str, company: str, list_key: str,
+                wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+    """Recent jobs on a Lever board (jobs.lever.co/<board>)."""
+    if not _BOARD.match(board):
+        raise SourceError(f"{company}: bad Lever board name {board!r}")
+    now = now or datetime.now(timezone.utc)
+    resp = session.get(LEVER_API.format(board=board), params={"mode": "json"}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    postings = []
+    for job in resp.json() or []:
+        title, url, stamp = str(job.get("text") or "").strip(), str(job.get("hostedUrl") or ""), job.get("createdAt")
+        if not title or not url.startswith("https://") or not isinstance(stamp, (int, float)) or not wants(title):
+            continue
+        when = datetime.fromtimestamp(stamp / 1000, timezone.utc)
+        if now - when > RECENT:
+            continue
+        cats = job.get("categories") or {}
+        postings.append(Posting(
+            list_key=list_key, row_id=str(job.get("id") or url), title=title, company=company,
+            location="; ".join(cats.get("allLocations") or [cats.get("location") or ""]), salary="", size=None,
+            date=f"{when:%b} {when.day}", work_model=None, apply_url=url, posted_at=when, source=f"{company} careers site",
+        ))
+    return postings
+
+
+def _ashby_place(item: dict) -> str:
+    addr = (item.get("address") or {}).get("postalAddress") or {}
+    city, region = addr.get("addressLocality"), addr.get("addressRegion")
+    return f"{city}, {region}" if city and region else str(item.get("location") or "")
+
+
+def fetch_ashby(session: requests.Session, board: str, company: str, list_key: str,
+                wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+    """Recent jobs on an Ashby board (jobs.ashbyhq.com/<board>)."""
+    if not _BOARD.match(board):
+        raise SourceError(f"{company}: bad Ashby board name {board!r}")
+    now = now or datetime.now(timezone.utc)
+    resp = session.get(ASHBY_API.format(board=board), timeout=TIMEOUT)
+    resp.raise_for_status()
+    postings = []
+    for job in resp.json().get("jobs") or []:
+        title, url = str(job.get("title") or "").strip(), str(job.get("jobUrl") or "")
+        if not title or not url.startswith("https://") or job.get("isListed") is False or not wants(title):
+            continue
+        try:
+            when = datetime.fromisoformat(str(job.get("publishedAt"))).astimezone(timezone.utc)
+        except ValueError:
+            continue
+        if now - when > RECENT:
+            continue
+        places = [_ashby_place(job)] + [_ashby_place(x) for x in job.get("secondaryLocations") or []]
+        postings.append(Posting(
+            list_key=list_key, row_id=str(job.get("id") or url), title=title, company=company,
+            location="; ".join(x for x in places if x), salary="", size=None, date=f"{when:%b} {when.day}",
+            work_model=None, apply_url=url, posted_at=when, source=f"{company} careers site",
+        ))
+    return postings
+
+
 BUILTIN = {"amazon": fetch_amazon, "google": fetch_google, "apple": fetch_apple}
 
 
@@ -315,6 +379,10 @@ def fetch_site(session: requests.Session, spec, now: datetime | None = None) -> 
         return fetch_workday(session, spec.workday, spec.company, spec.key, spec.wants, now=now)
     if spec.greenhouse:
         return fetch_greenhouse(session, spec.greenhouse, spec.company, spec.key, spec.wants, now=now)
+    if spec.lever:
+        return fetch_lever(session, spec.lever, spec.company, spec.key, spec.wants, now=now)
+    if spec.ashby:
+        return fetch_ashby(session, spec.ashby, spec.company, spec.key, spec.wants, now=now)
     if spec.oracle:
         return fetch_oracle(session, spec.oracle, spec.company, spec.key, spec.wants, now=now)
     return BUILTIN[spec.careers](session, spec.company, spec.key, spec.wants, now=now)

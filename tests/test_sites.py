@@ -77,12 +77,15 @@ def test_fetch_workday_uses_intern_filter_and_detail_locations():
     assert p.posted_at is None and p.date == "Nov 2" and p.source == "NVIDIA careers site"
 
 
-def test_fetch_workday_without_intern_filter_fails():
+def test_fetch_workday_without_intern_filter_searches():
     class S(WorkdaySession):
         def post(self, url, json, timeout):
-            return Resp({"facets": [], "jobPostings": []})
-    with pytest.raises(SourceError):
-        fetch_workday(S([]), WD, "NVIDIA", "site:nvidia", wants, now=NOW)
+            self.bodies.append(json)
+            return Resp({"facets": [], "jobPostings": self.jobs if json["searchText"] else []})
+    s = S([job("Security Intern")])
+    got = fetch_workday(s, WD, "NVIDIA", "site:nvidia", wants, now=NOW)
+    assert [p.title for p in got] == ["Security Intern"]
+    assert s.bodies[1] == {"limit": 20, "offset": 0, "searchText": "intern", "appliedFacets": {}}
 
 
 def test_fetch_greenhouse():
@@ -178,3 +181,28 @@ def test_fetch_apple():
     got = fetch_apple(GetSession([Text(html)]), "Apple", "site:apple", wants, now=NOW)
     assert [(p.row_id, p.location, p.apply_url) for p in got] == [
         ("200-1", "Cupertino, California", "https://jobs.apple.com/en-us/details/200-1/security-engineering-internship")]
+
+
+from jobscanner.sites import fetch_ashby, fetch_lever
+
+
+def test_fetch_lever():
+    stamp = int(NOW.timestamp() * 1000) - 3_600_000
+    jobs = [{"id": "a", "text": "Security Intern", "createdAt": stamp, "hostedUrl": "https://jobs.lever.co/p/a",
+             "categories": {"location": "Washington, D.C.", "allLocations": ["Washington, D.C.", "Palo Alto, CA"]}},
+            {"id": "b", "text": "Security Intern old", "createdAt": stamp - 30 * 86_400_000, "hostedUrl": "https://jobs.lever.co/p/b"}]
+    got = fetch_lever(GetSession([Resp(jobs)]), "palantir", "Palantir", "site:palantir", wants, now=NOW)
+    assert [(p.row_id, p.location) for p in got] == [("a", "Washington, D.C.; Palo Alto, CA")]
+    with pytest.raises(SourceError):
+        fetch_lever(GetSession([]), "../x", "P", "k", wants, now=NOW)
+
+
+def test_fetch_ashby():
+    addr = lambda city, region: {"postalAddress": {"addressLocality": city, "addressRegion": region}}
+    jobs = [{"id": "a", "title": "Security Engineering Intern", "jobUrl": "https://jobs.ashbyhq.com/o/a",
+             "publishedAt": "2026-11-01T10:00:00+00:00", "location": "San Francisco", "address": addr("San Francisco", "California"),
+             "secondaryLocations": [{"location": "NYC", "address": addr("New York", "New York")}]},
+            {"id": "b", "title": "Security Intern unlisted", "jobUrl": "https://jobs.ashbyhq.com/o/b", "isListed": False,
+             "publishedAt": "2026-11-01T10:00:00+00:00"}]
+    got = fetch_ashby(GetSession([Resp({"jobs": jobs})]), "openai", "OpenAI", "site:openai", wants, now=NOW)
+    assert [(p.row_id, p.location) for p in got] == [("a", "San Francisco, California; New York, New York")]

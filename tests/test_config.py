@@ -14,7 +14,8 @@ def test_repo_config_loads():
     assert "site:nvidia" in sites and sites["site:cloudflare"].greenhouse == "cloudflare"
     assert sites["site:nvidia"].wants("Security Engineering Intern") and not sites["site:nvidia"].wants("Security Engineer")
     assert not sites["site:nvidia"].wants("Internal Network Engineer")
-    assert cfg.criteria.skip_phd_only
+    assert cfg.criteria.skip_phd_only and cfg.criteria.graduation == (2028, 5)
+    assert "SpaceX" in cfg.criteria.priority_companies and "Tesla" in cfg.criteria.priority_companies
     assert cfg.lists[3].repo == "SimplifyJobs/Summer2027-Internships"
     assert cfg.criteria.min_hourly_pay == 35
     assert cfg.criteria.locations[0] == "Bay Area" and "CT" in cfg.criteria.locations

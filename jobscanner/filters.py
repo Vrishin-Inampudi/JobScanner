@@ -100,12 +100,41 @@ def _places(location: str) -> list[tuple[str, str]]:
         if len(bits) == 1 and bits[0].lower() in _SHORT_PLACES:
             out.append(_SHORT_PLACES[bits[0].lower()])
             continue
-        if bits and bits[-1].lower() in ("united states", "us", "usa"):
+        if bits and bits[-1].lower() in ("united states", "united states of america", "us", "usa"):
             bits = bits[:-1]
+        if len(bits) == 1 and " - " in bits[0]:          # 'California - San Francisco'
+            state, _, city = bits[0].partition(" - ")
+            if state.strip().lower() in _STATE_CODES:
+                bits = [city.strip(), state.strip()]
         if len(bits) >= 2:
-            st = bits[-1].upper() if bits[-1].upper() in STATES else _STATE_CODES.get(bits[-1].lower(), "")
+            last = bits[-1].upper().replace(".", "")
+            st = last if last in STATES else _STATE_CODES.get(bits[-1].lower(), "")
             out.append((bits[0].lower(), st))
     return out
+
+
+# Countries that mark a location as outside the US (company career sites list jobs worldwide).
+FOREIGN = re.compile(r"\b(" + "|".join([
+    "canada", "united kingdom", "uk", "england", "scotland", "ireland", "india", "germany", "france", "israel",
+    "romania", "poland", "spain", "italy", "netherlands", "belgium", "switzerland", "austria", "sweden",
+    "denmark", "norway", "finland", "portugal", "czech republic", "czechia", "hungary", "greece", "türkiye",
+    "turkey", "japan", "china", "hong kong", "taiwan", "korea", "singapore", "malaysia", "vietnam",
+    "philippines", "indonesia", "thailand", "australia", "new zealand", "mexico", "brazil", "argentina",
+    "colombia", "chile", "costa rica", "united arab emirates", "uae", "saudi arabia", "qatar", "egypt",
+    "south africa", "luxembourg", "lithuania", "ukraine", "serbia", "bulgaria", "croatia", "estonia",
+]) + r")\b", re.I)
+_US = re.compile(r"\b(united states|usa|u\.s\.a?\.?|us)\b", re.I)
+
+
+def outside_us(location: str) -> bool:
+    """True only when every listed place names another country: unknown places count as US."""
+    parts = [x.strip() for x in re.split(r"[;\n]", location or "") if x.strip()]
+    if not parts:
+        return False
+    for part in parts:
+        if _US.search(part) or _places(part) and any(st for _, st in _places(part)) or not FOREIGN.search(part):
+            return False
+    return True
 
 
 def _metro_cities(name: str) -> set[tuple[str, str]]:
@@ -155,12 +184,15 @@ def _norm(s: str) -> str:
 CORPORATE_WORDS = {
     "inc", "incorporated", "corp", "corporation", "co", "company", "llc", "ltd", "limited", "plc",
     "group", "holdings", "technologies", "platforms", "networks", "web", "services", "usa", "us", "the",
+    "industries", "systems", "labs", "laboratory", "technology", "solutions", "international", "federal",
 }
 
 
 def priority_match(company: str, names: list[str]) -> str | None:
     """Return the configured name if the company is that name plus only corporate words."""
     c = _norm(re.sub(r"\(.*?\)", " ", company)).split()
+    if c[:1] == ["the"]:
+        c = c[1:]
     for name in names:
         n = _norm(name).split()
         if n and c[: len(n)] == n and all(w in CORPORATE_WORDS for w in c[len(n):]):
@@ -270,6 +302,8 @@ class Match:
 
 
 def eligible(p: Posting, c: Criteria) -> bool:
+    if outside_us(p.location):
+        return False
     if c.skip_phd_only and phd_only(p):
         return False
     return grad_fits(p.grad_time, c.graduation)

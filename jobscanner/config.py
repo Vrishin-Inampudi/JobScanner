@@ -11,6 +11,7 @@ import yaml
 from .filters import Criteria, parse_month
 
 BUILTIN_CAREERS = ("amazon", "google", "apple")  # sites.BUILTIN
+SITE_KINDS = ("workday", "greenhouse", "lever", "ashby", "oracle", "careers")
 
 
 @dataclass
@@ -23,12 +24,14 @@ class ListSpec:
     company: str | None = None    # company career sites: the company's name
     workday: str | None = None    # ... its Workday careers URL
     greenhouse: str | None = None  # ... or its Greenhouse board name
+    lever: str | None = None      # ... or its Lever board name
+    ashby: str | None = None      # ... or its Ashby board name
     oracle: str | None = None     # ... or its Oracle Recruiting careers URL
     careers: str | None = None    # ... or a built-in site: amazon, google, apple
 
     @property
     def is_site(self) -> bool:
-        return bool(self.workday or self.greenhouse or self.oracle or self.careers)
+        return bool(self.workday or self.greenhouse or self.lever or self.ashby or self.oracle or self.careers)
 
     def wants(self, title: str) -> bool:
         t = title.lower()
@@ -57,7 +60,8 @@ def load_config(path: str | Path) -> Config:
     match = raw.get("match", "any")
     if match not in ("any", "all"):
         raise ValueError(f"{path}: 'match' must be 'any' or 'all', got {match!r}")
-    lists += _company_sites(path, raw.get("company_sites") or {})
+    site_specs = _company_sites(path, raw.get("company_sites") or {})
+    lists += site_specs
     elig = raw.get("eligibility") or {}
     graduation = None
     if elig.get("graduation"):
@@ -70,7 +74,9 @@ def load_config(path: str | Path) -> Config:
         min_hourly_pay=crit.get("min_hourly_pay"),
         locations=[str(s) for s in crit.get("locations") or []],
         large_company_min_size=crit.get("large_company_min_size"),
-        priority_companies=[str(s) for s in crit.get("priority_companies") or []],
+        # Every company whose career site you watch is a top company too.
+        priority_companies=list(dict.fromkeys([str(s) for s in crit.get("priority_companies") or []]
+                                              + [s.company for s in site_specs])),
         match=match,
         graduation=graduation,
         skip_phd_only=bool(elig.get("skip_phd_only", False)),
@@ -101,16 +107,15 @@ def _company_sites(path, section: dict) -> list[ListSpec]:
     specs, keys = [], set()
     for site in section.get("sites") or []:
         company = str(site.get("company") or "").strip()
-        kinds = [k for k in ("workday", "greenhouse", "oracle", "careers") if site.get(k)]
+        kinds = [k for k in SITE_KINDS if site.get(k)]
         if not company or len(kinds) != 1:
             raise ValueError(f"{path}: each company site needs a company and exactly one of "
-                             f"workday/greenhouse/oracle/careers: {site!r}")
+                             f"{'/'.join(SITE_KINDS)}: {site!r}")
         if site.get("careers") and site["careers"] not in BUILTIN_CAREERS:
             raise ValueError(f"{path}: careers must be one of {', '.join(BUILTIN_CAREERS)}, got {site['careers']!r}")
         key = "site:" + re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
         if key in keys:
             raise ValueError(f"{path}: company site {company!r} is listed twice")
         keys.add(key)
-        specs.append(ListSpec(key=key, company=company, workday=site.get("workday"), greenhouse=site.get("greenhouse"),
-                              oracle=site.get("oracle"), careers=site.get("careers"), **shared))
+        specs.append(ListSpec(key=key, company=company, **{k: site.get(k) for k in SITE_KINDS}, **shared))
     return specs

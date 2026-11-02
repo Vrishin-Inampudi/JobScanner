@@ -32,6 +32,7 @@ company_sites:
   title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team, firewall]
   title_exclude: [physical security, social security, supply chain]
   sites:
+    # Security and networking
     - {company: Palo Alto Networks, workday: "https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers"}
     - {company: CrowdStrike, workday: "https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers"}
     - {company: Fortinet, oracle: "https://edel.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001"}
@@ -40,16 +41,85 @@ company_sites:
     - {company: Okta, greenhouse: okta}
     - {company: Cloudflare, greenhouse: cloudflare}
     - {company: SentinelOne, greenhouse: sentinellabs}
+    - {company: Wiz, greenhouse: wizinc}
+    - {company: Tenable, greenhouse: tenableinc}
+    - {company: Proofpoint, workday: "https://proofpoint.wd5.myworkdayjobs.com/ProofpointCareers"}
+    - {company: Arctic Wolf, workday: "https://arcticwolf.wd1.myworkdayjobs.com/External"}
+    - {company: Abnormal Security, greenhouse: abnormalsecurity}
+    - {company: 1Password, ashby: 1password}
+    - {company: Snyk, ashby: snyk}
+    - {company: Vanta, ashby: vanta}
+    - {company: Chainguard, greenhouse: chainguard}
+    - {company: Tailscale, greenhouse: tailscale}
+    - {company: Verkada, greenhouse: verkada}
+    - {company: Hewlett Packard Enterprise, workday: "https://hpe.wd5.myworkdayjobs.com/Jobsathpe"}
+    - {company: Broadcom, workday: "https://broadcom.wd1.myworkdayjobs.com/External_Career"}
+    # Big tech
     - {company: Apple, careers: apple}
     - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
     - {company: Google, careers: google}
     - {company: Amazon, careers: amazon}
-    # Not supported: Meta (its job list only loads in a browser) and Microsoft (its job
-    # search blocks automated requests). intern-list.com still covers both.
-
+    - {company: Salesforce, workday: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site"}
+    - {company: Adobe, workday: "https://adobe.wd5.myworkdayjobs.com/external_experienced"}
+    - {company: Intel, workday: "https://intel.wd1.myworkdayjobs.com/External"}
+    - {company: Micron, workday: "https://micron.wd1.myworkdayjobs.com/External"}
+    - {company: Workday, workday: "https://workday.wd5.myworkdayjobs.com/Workday"}
+    # AI, aerospace and hard tech
+    - {company: SpaceX, greenhouse: spacex}
+    - {company: Anduril Industries, greenhouse: andurilindustries}
+    - {company: Palantir Technologies, lever: palantir}
+    - {company: OpenAI, ashby: openai}
+    - {company: Anthropic, greenhouse: anthropic}
+    - {company: xAI, greenhouse: xai}
+    - {company: Scale AI, greenhouse: scaleai}
+    - {company: Databricks, greenhouse: databricks}
+    - {company: Snowflake, ashby: snowflake}
+    - {company: Shield AI, ashby: shieldai}
+    - {company: Saronic, ashby: saronic}
+    - {company: Waymo, greenhouse: waymo}
+    - {company: Zoox, lever: zoox}
+    - {company: Nuro, greenhouse: nuro}
+    - {company: Neuralink, greenhouse: neuralink}
+    # Defense and government
+    - {company: Northrop Grumman, workday: "https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site"}
+    - {company: RTX, workday: "https://globalhr.wd5.myworkdayjobs.com/REC_RTX_Ext_Gateway"}
+    - {company: Boeing, workday: "https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS"}
+    - {company: Booz Allen Hamilton, workday: "https://bah.wd1.myworkdayjobs.com/BAH_Jobs"}
+    - {company: Leidos, workday: "https://leidos.wd5.myworkdayjobs.com/External"}
+    - {company: General Dynamics Information Technology, workday: "https://gdit.wd5.myworkdayjobs.com/External_Career_Site"}
+    # Software, fintech and trading
+    - {company: Stripe, greenhouse: stripe}
+    - {company: Datadog, greenhouse: datadog}
+    - {company: MongoDB, greenhouse: mongodb}
+    - {company: Elastic, greenhouse: elastic}
+    - {company: GitLab, greenhouse: gitlab}
+    - {company: Samsara, greenhouse: samsara}
+    - {company: Coinbase, greenhouse: coinbase}
+    - {company: Robinhood, greenhouse: robinhood}
+    - {company: Ramp, ashby: ramp}
+    - {company: Plaid, ashby: plaid}
+    - {company: Brex, greenhouse: brex}
+    - {company: Capital One, workday: "https://capitalone.wd12.myworkdayjobs.com/Capital_One"}
+    - {company: Visa, workday: "https://visa.wd5.myworkdayjobs.com/Visa"}
+    - {company: Mastercard, workday: "https://mastercard.wd1.myworkdayjobs.com/CorporateCareers"}
+    - {company: Jane Street, greenhouse: janestreet}
+    - {company: Hudson River Trading, greenhouse: wehrtyou}
+    - {company: Airbnb, greenhouse: airbnb}
+    - {company: DoorDash, greenhouse: doordashusa}
+    - {company: Lyft, greenhouse: lyft}
+    - {company: Instacart, greenhouse: instacart}
+    - {company: Pinterest, greenhouse: pinterest}
+    - {company: Reddit, greenhouse: reddit}
+    - {company: Discord, greenhouse: discord}
+    - {company: Roblox, greenhouse: roblox}
+    - {company: Figma, greenhouse: figma}
+    # Not checkable directly (their job sites block automated requests or only load in a
+    # browser): Tesla, Meta, Microsoft, Netflix, Uber, Snap, Lockheed Martin, L3Harris,
+    # AMD, Qualcomm, Citadel, Two Sigma, Bloomberg, MITRE. They're top companies below,
+    # so their jobs on intern-list.com and the GitHub list still get the ★.
 # Skip jobs you can't take. These apply before the criteria below.
 eligibility:
-  # graduation: 2028-05   # your graduation (YYYY-MM): skips roles for other grad classes
+  graduation: 2028-05     # your graduation (YYYY-MM): skips roles for other grad classes
   skip_phd_only: true
 
 # Only consider jobs posted within this many hours. Each email still only contains jobs
@@ -78,18 +148,28 @@ criteria:
   # Chicago, Austin, DC — suburbs included, see METROS in jobscanner/filters.py) or cities ("Denver, CO").
   locations: [Bay Area, Los Angeles, San Diego, Seattle, NYC, Boston, Chicago, Austin, DC, CT]
   large_company_min_size: 10000 # employees, from the site's size buckets
-  priority_companies:           # ranked first; also count as "large company"
-    - Palo Alto Networks
-    - CrowdStrike
-    - Fortinet
-    - Zscaler
-    - Cisco
-    - Okta
-    - Cloudflare
-    - SentinelOne
-    - Apple
-    - NVIDIA
+  priority_companies:           # ranked first; also count as "large company". Every company
+                                # under company_sites is one too, so only others go here.
     - Meta
-    - Google
     - Microsoft
-    - Amazon
+    - Tesla
+    - Netflix
+    - Uber
+    - Snap
+    - Lockheed Martin
+    - L3Harris
+    - Raytheon
+    - General Dynamics
+    - AMD
+    - Qualcomm
+    - Texas Instruments
+    - IBM
+    - Akamai
+    - Arista Networks
+    - Rapid7
+    - Citadel
+    - Two Sigma
+    - Bloomberg
+    - MITRE
+    - Johns Hopkins Applied Physics Laboratory
+    - MIT Lincoln Laboratory

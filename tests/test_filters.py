@@ -184,3 +184,41 @@ def test_eligibility_filters_before_criteria():
     m = evaluate(posting(**nvidia, qualifications="US citizen required"), crit)
     assert m.flags == ["US citizens"]
     assert eligible(posting(title="PhD Intern"), CRIT)                 # off by default
+
+
+def test_priority_names_with_the_and_suffixes():
+    names = ["Boeing", "Anduril", "Cisco", "Apple"]
+    assert priority_match("The Boeing Company", names) == "Boeing"
+    assert priority_match("Anduril Industries", names) == "Anduril"
+    assert priority_match("Cisco Systems, Inc.", names) == "Cisco"
+    assert priority_match("Apple Federal Credit Union", names) is None
+
+
+from jobscanner.filters import outside_us
+
+
+@pytest.mark.parametrize("loc,expected", [
+    ("Bucharest, Romania", True),
+    ("Winnersh, United Kingdom", True),
+    ("Toronto, ON, Canada", True),
+    ("Office - Israel - Petach Tikva", True),
+    ("United States; Canada", False),
+    ("Remote in USA; Remote in Canada", False),
+    ("Westford, Massachusetts, United States of America", False),
+    ("San Francisco", False),
+    ("Hybrid", False),
+    ("", False),
+    ("Bangalore, India; Austin, TX", False),
+])
+def test_outside_us(loc, expected):
+    assert outside_us(loc) is expected
+
+
+@pytest.mark.parametrize("loc,expected", [
+    ("California - San Francisco; Washington - Seattle", "Bay Area"),
+    ("Westford, Massachusetts, United States of America", None),
+    ("Cambridge, Massachusetts, United States of America", "Boston"),
+    ("Washington, D.C.", "DC"),
+])
+def test_more_location_formats(loc, expected):
+    assert location_match(loc, METRO_PREFS) == expected
