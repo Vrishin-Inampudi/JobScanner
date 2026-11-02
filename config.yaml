@@ -30,13 +30,22 @@ lists:
 company_sites:
   title_require: [intern, co-op]
   title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team, firewall]
-  title_exclude: [physical security, social security]
+  title_exclude: [physical security, social security, supply chain]
   sites:
-    - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
+    - {company: Palo Alto Networks, workday: "https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers"}
     - {company: CrowdStrike, workday: "https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers"}
-    - {company: Cloudflare, greenhouse: cloudflare}
-    - {company: Okta, greenhouse: okta}
+    - {company: Fortinet, oracle: "https://edel.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001"}
     - {company: Zscaler, greenhouse: zscaler}
+    - {company: Cisco, workday: "https://cisco.wd5.myworkdayjobs.com/Cisco_Careers"}
+    - {company: Okta, greenhouse: okta}
+    - {company: Cloudflare, greenhouse: cloudflare}
+    - {company: SentinelOne, greenhouse: sentinellabs}
+    - {company: Apple, careers: apple}
+    - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
+    - {company: Google, careers: google}
+    - {company: Amazon, careers: amazon}
+    # Not supported: Meta (its job list only loads in a browser) and Microsoft (its job
+    # search blocks automated requests). intern-list.com still covers both.
 
 # Skip jobs you can't take. These apply before the criteria below.
 eligibility:

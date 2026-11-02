@@ -56,6 +56,7 @@ eligibility: {graduation: 2028-05}
     assert cfg.criteria.graduation == (2028, 5) and not cfg.criteria.skip_phd_only
     for bad in ("company_sites: {sites: [{company: X}]}",
                 "company_sites: {sites: [{company: X, greenhouse: a, workday: b}]}",
+                "company_sites: {sites: [{company: X, careers: meta}]}",
                 "eligibility: {graduation: 2028}"):
         p.write_text("lists: [cs]\n" + bad + "\n")
         with pytest.raises(ValueError):

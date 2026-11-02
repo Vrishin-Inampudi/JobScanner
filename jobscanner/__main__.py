@@ -70,10 +70,8 @@ def run(
             failures.append(f"unknown list '{spec.key}' (available: {', '.join(sorted(available))})")
             continue
         try:
-            if spec.workday:
-                postings = sites.fetch_workday(session, spec.workday, spec.company, spec.key, spec.wants, now=now)
-            elif spec.greenhouse:
-                postings = sites.fetch_greenhouse(session, spec.greenhouse, spec.company, spec.key, spec.wants, now=now)
+            if spec.is_site:
+                postings = sites.fetch_site(session, spec, now=now)
             elif spec.repo:
                 postings = source.fetch_github_list(session, spec.repo, spec.key, now=now)
             else:

@@ -104,3 +104,77 @@ def test_fetch_greenhouse():
     assert got[0].posted_at == datetime(2026, 11, 1, 14, 0, tzinfo=timezone.utc)
     with pytest.raises(SourceError):
         fetch_greenhouse(S(), "../evil", "X", "k", wants, now=NOW)
+
+
+from jobscanner.sites import fetch_amazon, fetch_apple, fetch_google, fetch_oracle, oracle_parts
+
+ORACLE = "https://edel.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001"
+
+
+def test_oracle_parts():
+    assert oracle_parts(ORACLE) == ("edel.fa.us2.oraclecloud.com", "CX_2001")
+    with pytest.raises(SourceError):
+        oracle_parts("https://evil.com/hcmUI/CandidateExperience/en/sites/CX_1")
+
+
+class GetSession:
+    def __init__(self, pages):
+        self.pages, self.calls = list(pages), []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append((url, params))
+        return self.pages.pop(0)
+
+
+class Text(Resp):
+    def __init__(self, text):
+        super().__init__(None)
+        self.text = text
+
+
+def test_fetch_oracle_stops_at_old_jobs():
+    page = {"items": [{"requisitionList": [
+        {"Id": "1", "Title": "Network Security Intern", "PostedDate": "2026-11-01", "PrimaryLocation": "Sunnyvale, California, United States"},
+        {"Id": "2", "Title": "Sales Manager", "PostedDate": "2026-11-01"},
+        {"Id": "3", "Title": "Security Intern old", "PostedDate": "2026-10-01"},
+    ]}]}
+    s = GetSession([Resp(page)])
+    got = fetch_oracle(s, ORACLE, "Fortinet", "site:fortinet", wants, now=NOW)
+    assert [p.row_id for p in got] == ["1"] and len(s.calls) == 1
+    assert got[0].apply_url == ORACLE + "/job/1" and got[0].date == "Nov 1"
+    assert "sortBy=POSTING_DATES_DESC" in s.calls[0][1]["finder"]
+
+
+def test_fetch_amazon():
+    jobs = [{"title": "Security Engineer Intern", "posted_date": "October 30, 2026", "job_path": "/en/jobs/1/sec",
+             "id_icims": "1", "city": "Seattle", "state": "WA"},
+            {"title": "Security Intern old", "posted_date": "September 1, 2026", "job_path": "/en/jobs/2/x", "id_icims": "2"}]
+    got = fetch_amazon(GetSession([Resp({"jobs": jobs})]), "Amazon", "site:amazon", wants, now=NOW)
+    assert [(p.row_id, p.location, p.apply_url) for p in got] == [("1", "Seattle, WA", "https://www.amazon.jobs/en/jobs/1/sec")]
+
+
+def test_fetch_google():
+    stamp = int(NOW.timestamp()) - 3600
+    data = [[["123", "Security Engineering Intern, BS/MS", "x", None, None, None, None, "Google", "en",
+              [["Sunnyvale, CA, USA"], ["New York, NY, USA"]], None, None, [stamp, 0]],
+             ["456", "Marketing Intern", "x", None, None, None, None, "Google", "en", [["NYC"]], None, None, [stamp, 0]]],
+            None, 2, 20]
+    html = "<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:" + __import__("json").dumps(data) + ", sideChannel: {}});</script>"
+    got = fetch_google(GetSession([Text(html)]), "Google", "site:google", wants, now=NOW)
+    assert [(p.row_id, p.location) for p in got] == [("123", "Sunnyvale, CA, USA; New York, NY, USA")]
+    assert got[0].apply_url.endswith("/jobs/results/123")
+    with pytest.raises(SourceError):
+        fetch_google(GetSession([Text("<html>changed</html>")]), "Google", "site:google", wants, now=NOW)
+
+
+def test_fetch_apple():
+    import json
+    hydration = {"loaderData": {"search": {"searchResults": [
+        {"postingTitle": "Security Engineering Internship", "positionId": "200-1", "postDateInGMT": "2026-11-01T18:58:20.01Z",
+         "transformedPostingTitle": "security-engineering-internship",
+         "locations": [{"city": "Cupertino", "stateProvince": "California", "name": "Cupertino"}]},
+    ]}}}
+    html = 'window.__staticRouterHydrationData = JSON.parse(' + json.dumps(json.dumps(hydration)) + ');'
+    got = fetch_apple(GetSession([Text(html)]), "Apple", "site:apple", wants, now=NOW)
+    assert [(p.row_id, p.location, p.apply_url) for p in got] == [
+        ("200-1", "Cupertino, California", "https://jobs.apple.com/en-us/details/200-1/security-engineering-internship")]

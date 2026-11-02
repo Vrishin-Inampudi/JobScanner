@@ -10,6 +10,8 @@ import yaml
 
 from .filters import Criteria, parse_month
 
+BUILTIN_CAREERS = ("amazon", "google", "apple")  # sites.BUILTIN
+
 
 @dataclass
 class ListSpec:
@@ -21,10 +23,12 @@ class ListSpec:
     company: str | None = None    # company career sites: the company's name
     workday: str | None = None    # ... its Workday careers URL
     greenhouse: str | None = None  # ... or its Greenhouse board name
+    oracle: str | None = None     # ... or its Oracle Recruiting careers URL
+    careers: str | None = None    # ... or a built-in site: amazon, google, apple
 
     @property
     def is_site(self) -> bool:
-        return bool(self.workday or self.greenhouse)
+        return bool(self.workday or self.greenhouse or self.oracle or self.careers)
 
     def wants(self, title: str) -> bool:
         t = title.lower()
@@ -97,11 +101,16 @@ def _company_sites(path, section: dict) -> list[ListSpec]:
     specs, keys = [], set()
     for site in section.get("sites") or []:
         company = str(site.get("company") or "").strip()
-        if not company or bool(site.get("workday")) == bool(site.get("greenhouse")):
-            raise ValueError(f"{path}: each company site needs a company and exactly one of workday/greenhouse: {site!r}")
+        kinds = [k for k in ("workday", "greenhouse", "oracle", "careers") if site.get(k)]
+        if not company or len(kinds) != 1:
+            raise ValueError(f"{path}: each company site needs a company and exactly one of "
+                             f"workday/greenhouse/oracle/careers: {site!r}")
+        if site.get("careers") and site["careers"] not in BUILTIN_CAREERS:
+            raise ValueError(f"{path}: careers must be one of {', '.join(BUILTIN_CAREERS)}, got {site['careers']!r}")
         key = "site:" + re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
         if key in keys:
             raise ValueError(f"{path}: company site {company!r} is listed twice")
         keys.add(key)
-        specs.append(ListSpec(key=key, company=company, workday=site.get("workday"), greenhouse=site.get("greenhouse"), **shared))
+        specs.append(ListSpec(key=key, company=company, workday=site.get("workday"), greenhouse=site.get("greenhouse"),
+                              oracle=site.get("oracle"), careers=site.get("careers"), **shared))
     return specs

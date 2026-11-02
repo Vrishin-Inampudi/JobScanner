@@ -105,8 +105,11 @@ criteria:
   both lists is sent once, using intern-list's copy. Update the repo name each season.
 - **`company_sites`**: check companies' own career sites, where jobs appear before
   aggregators copy them. Each site needs a `company` and either a `workday` careers URL
-  (e.g. `https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`) or a
-  `greenhouse` board name (the part after `boards.greenhouse.io/`). The section's
+  (e.g. `https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`), a
+  `greenhouse` board name (the part after `boards.greenhouse.io/`), an `oracle`
+  Recruiting careers URL (`https://….oraclecloud.com/hcmUI/CandidateExperience/en/sites/…`),
+  or `careers: amazon`, `google` or `apple` for those companies' own sites. Meta and
+  Microsoft aren't supported, because their job search only works in a browser. The section's
   `title_require`, `title_include` and `title_exclude` apply to every site. The first
   check of a new site only records what's already posted, and after that you get each
   new job.
