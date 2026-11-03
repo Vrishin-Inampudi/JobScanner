@@ -27,6 +27,9 @@ TEXT, MUTED, FAINT = "#ECECEC", "#9B9B9B", "#6F6F6F"
 TODAY = "#EB5757"
 TOP = {"bar": "#EB5757", "fill": "#3A2422", "tag": "#4A2A27", "tag_text": "#F3A49E"}
 OTHER = {"bar": "#4DA3FF", "fill": "#1F2C3A", "tag": "#26394D", "tag_text": "#A9CFF7"}
+HAVE = {"fill": "#1E3326", "text": "#8FD6A4"}   # skills you have
+LACK = {"fill": "#3A3020", "text": "#E9BE74"}   # skills you don't
+MAX_SKILLS = 8
 SANS = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Inter,Helvetica,Arial,sans-serif"
 
 
@@ -61,6 +64,24 @@ def _tags(m: Match) -> list[tuple[str, bool]]:
     return tags
 
 
+def _skills_text(m: Match) -> str:
+    """'✓ Python, C++ · ✗ Java' or '' when the posting mentions none of your skills."""
+    parts = [f"✓ {', '.join(m.have)}" if m.have else "", f"✗ {', '.join(m.lack)}" if m.lack else ""]
+    return " · ".join(x for x in parts if x)
+
+
+def _skill_chips(m: Match) -> str:
+    """Green chips for skills you have, amber for ones you don't (a few, then '+N more')."""
+    e = lambda s: html.escape(str(s), quote=True)
+    chip = lambda label, c: (f'<span style="display:inline-block;margin:0 6px 6px 0;padding:2px 8px;border-radius:6px;'
+                             f'background:{c["fill"]};color:{c["text"]};font:500 12px/1.5 {SANS}">{e(label)}</span>')
+    out = [chip(f"✓ {s}", HAVE) for s in m.have[:MAX_SKILLS]]
+    if len(m.have) > MAX_SKILLS:
+        out.append(chip(f"+{len(m.have) - MAX_SKILLS} more", HAVE))
+    out += [chip(f"✗ {s}", LACK) for s in m.lack]
+    return f'<div>{"".join(out)}</div>' if out else ""
+
+
 def _timing(p) -> str:
     """'Starts May 2027 · For Dec 2027 / Jun 2028 grads'."""
     start, grad = pretty_month(p.start_time), pretty_month(p.grad_time)
@@ -83,7 +104,8 @@ def _text(matches: list[Match], now: datetime, links=None) -> str:
         why = ", ".join(label for label, _ in _tags(m))
         track = (links or (lambda _: None))(p)
         mark = f"Mark applied: {track['applied']}\nNot interested: {track['skip']}\n" if track else ""
-        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\nApply: {p.apply_url}\n{mark}")
+        skills = f"Skills: {_skills_text(m)}\n" if _skills_text(m) else ""
+        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\n{skills}Apply: {p.apply_url}\n{mark}")
     return "\n".join(parts)
 
 
@@ -116,7 +138,7 @@ def _event(m: Match, now: datetime, links=None) -> str:
         <a href="{e(p.apply_url)}" style="color:{TEXT};text-decoration:none">{e(p.title)}</a></div>
       <div style="font:500 13px/1.5 {SANS};color:{c['tag_text']};margin:3px 0 6px">{e(when)}</div>
       <div style="font:400 13px/1.55 {SANS};color:{MUTED};margin-bottom:10px">{facts}</div>
-      <div>{tags}</div>
+      <div>{tags}</div>{_skill_chips(m)}
       <a href="{e(p.apply_url)}" style="display:inline-block;margin-top:4px;padding:7px 14px;border-radius:7px;
          background:#2A2A2A;border:1px solid #3A3A3A;color:{TEXT};font:600 13px/1 {SANS};text-decoration:none">Apply &rarr;</a>{_track(p, links)}
     </td></tr>
@@ -152,7 +174,8 @@ def _legend_dot(color: str, label: str) -> str:
 def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool, check_every: int) -> str:
     """The shared dark shell: header with today badge, headline, body rows, footer."""
     local = now.astimezone(DISPLAY_TZ)
-    key = f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}" if legend else ""
+    key = (f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}"
+           f"{_legend_dot(HAVE['text'], '✓ Skill you have')}{_legend_dot(LACK['text'], '✗ Skill you don’t')}") if legend else ""
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>JobScanner</title></head>

@@ -222,3 +222,16 @@ def test_outside_us(loc, expected):
 ])
 def test_more_location_formats(loc, expected):
     assert location_match(loc, METRO_PREFS) == expected
+
+
+def test_skills_are_highlighted_not_filtered():
+    from dataclasses import replace
+    from jobscanner.emailer import render
+    from jobscanner.skills import Skills, skill
+    crit = replace(CRIT, skills=Skills(have=[skill("C++"), skill("Linux")], lack=[skill("Java")]))
+    m = evaluate(posting(company="NVIDIA", qualifications="C/C++ on Linux", description="Java a plus"), crit)
+    assert (m.have, m.lack) == (["C++", "Linux"], ["Java"])
+    subject, text, html = render([m])
+    assert "Skills: ✓ C++, Linux · ✗ Java" in text
+    assert "✓ C++" in html and "✗ Java" in html
+    assert evaluate(posting(company="NVIDIA", description="Java only"), crit) is not None  # still sent

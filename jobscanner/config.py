@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from .filters import Criteria, parse_month
+from .skills import Skills, skill
 
 BUILTIN_CAREERS = ("amazon", "google", "apple")  # sites.BUILTIN
 SITE_KINDS = ("workday", "greenhouse", "lever", "ashby", "oracle", "careers")
@@ -82,6 +83,7 @@ def load_config(path: str | Path) -> Config:
         graduation=graduation,
         skip_phd_only=bool(elig.get("skip_phd_only", False)),
         company_needs_location=bool(crit.get("company_needs_location", False)),
+        skills=_skills(path, raw.get("skills") or {}),
     )
     max_age = raw.get("max_age_hours", 24)
     if not isinstance(max_age, (int, float)) or max_age <= 0:
@@ -103,6 +105,15 @@ def load_config(path: str | Path) -> Config:
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
                   check_every_minutes=check_every, digest_hour=digest)
+
+
+def _skills(path, section: dict) -> Skills:
+    """``skills: {have: [...], lack: [...]}``; each entry is a name or [name, other spellings...]."""
+    try:
+        return Skills(have=[skill(e) for e in section.get("have") or []],
+                      lack=[skill(e) for e in section.get("lack") or []])
+    except ValueError as e:
+        raise ValueError(f"{path}: skills: {e}") from None
 
 
 def _company_sites(path, section: dict) -> list[ListSpec]:

@@ -62,3 +62,14 @@ eligibility: {graduation: 2028-05}
         p.write_text("lists: [cs]\n" + bad + "\n")
         with pytest.raises(ValueError):
             load_config(p)
+
+
+def test_skills_section(tmp_path):
+    from jobscanner.config import load_config
+    p = tmp_path / "c.yaml"
+    p.write_text("lists: [cs]\nskills:\n  have: [Python, [Security+, Sec+]]\n  lack: [Java]\n")
+    s = load_config(p).criteria.skills
+    assert [x.name for x in s.have] == ["Python", "Security+"] and [x.name for x in s.lack] == ["Java"]
+    p.write_text("lists: [cs]\nskills:\n  have: [[]]\n")
+    with pytest.raises(ValueError, match="skills"):
+        load_config(p)

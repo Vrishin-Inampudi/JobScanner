@@ -174,6 +174,23 @@ criteria:
 
 Jobs already emailed are never sent again, even if you change the config.
 
+### Skills
+
+Each job in the email lists the skills its posting mentions: green **✓** for ones you
+have, amber **✗** for ones you don't. This only highlights; it never changes which jobs
+are sent. List them under `skills`:
+
+```yaml
+skills:
+  have: [Python, C++, C, Linux, [Security+, Sec+]]   # [name, other spellings...]
+  lack: [Java, [Go, Golang], [C#, .NET]]
+```
+
+`C` doesn't match C++, C# or C-suite, and short names (C, Go, AWS) only match with that
+exact capitalization, so "go above and beyond" isn't Go. Postings are read from
+intern-list's qualifications and from Workday, Greenhouse, Lever, Ashby and Amazon job
+descriptions. The GitHub list has no descriptions, so its jobs show no skills.
+
 ## Run it locally
 
 ```bash

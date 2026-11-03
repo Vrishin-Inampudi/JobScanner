@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .skills import Skills
 from .source import Posting
 
 HOURS_PER_YEAR = 2080
@@ -267,7 +268,7 @@ def phd_only(p: Posting) -> bool:
 
 def requirement_flags(p: Posting) -> list[str]:
     """Hard requirements worth knowing before applying."""
-    text = f"{p.title}\n{p.qualifications}"
+    text = f"{p.title}\n{p.qualifications}\n{p.description}"
     flags = []
     if _CLEARANCE.search(text):
         flags.append("Needs clearance")
@@ -290,6 +291,8 @@ class Criteria:
     skip_phd_only: bool = False
     # Company matches (priority or large) must also be in `locations`, remote, or unspecific.
     company_needs_location: bool = False
+    # Skills to point out in each posting (only highlighted; never filters).
+    skills: Skills = field(default_factory=Skills)
 
 
 @dataclass
@@ -301,6 +304,8 @@ class Match:
     size: int
     reasons: list[str]
     flags: list[str] = field(default_factory=list)
+    have: list[str] = field(default_factory=list)  # skills it mentions that you have
+    lack: list[str] = field(default_factory=list)  # ... and that you don't
 
 
 def anywhere(p: Posting) -> bool:
@@ -342,7 +347,8 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     if hourly is not None:
         reasons.append(f"${hourly:g}/hr")
     reasons.append(pretty_location(p.location) or "location unknown")
-    return Match(p, hourly, area, priority, size, reasons, requirement_flags(p))
+    have, lack = c.skills.find(f"{p.title}\n{p.qualifications}\n{p.description}")
+    return Match(p, hourly, area, priority, size, reasons, requirement_flags(p), have, lack)
 
 
 def rank(matches: list[Match]) -> list[Match]:

@@ -59,6 +59,7 @@ class Posting:
     grad_time: str = ""       # graduation dates the role is for, e.g. "2027-December / 2028-June"
     start_time: str = ""      # when the internship starts, e.g. "2027-May"
     qualifications: str = ""  # requirements text, checked for PhD-only / clearance / citizenship
+    description: str = ""     # the job description as plain text, when the site gives one
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)

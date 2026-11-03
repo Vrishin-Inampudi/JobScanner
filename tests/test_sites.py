@@ -100,10 +100,13 @@ def test_fetch_greenhouse():
 
     class S:
         def get(self, url, timeout):
+            if url == "https://boards-api.greenhouse.io/v1/boards/cloudflare/jobs/1":
+                return Resp({"content": "&lt;p&gt;Know &lt;b&gt;C/C++&lt;/b&gt; &amp;amp; Linux&lt;/p&gt;"})
             assert url == "https://boards-api.greenhouse.io/v1/boards/cloudflare/jobs"
             return Resp({"jobs": jobs})
     got = fetch_greenhouse(S(), "cloudflare", "Cloudflare", "site:cloudflare", wants, now=NOW)
     assert [p.row_id for p in got] == ["1"]
+    assert got[0].description == "Know C/C++ & Linux"
     assert got[0].posted_at == datetime(2026, 11, 1, 14, 0, tzinfo=timezone.utc)
     with pytest.raises(SourceError):
         fetch_greenhouse(S(), "../evil", "X", "k", wants, now=NOW)

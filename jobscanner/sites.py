@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .skills import plain_text
 from .source import TIMEOUT, Posting, SourceError
 
 WORKDAY_PAGE = 20          # the most Workday returns per request
@@ -93,15 +94,17 @@ def fetch_workday(session: requests.Session, url: str, company: str, list_key: s
             when = workday_posted(job.get("postedOn"), now)
             if not title or not path.startswith("/") or when is None or now - when > RECENT or not wants(title):
                 continue
-            location = str(job.get("locationsText") or "")
+            location, description = str(job.get("locationsText") or ""), ""
             detail = session.get(f"{api}{path}", timeout=TIMEOUT)
             if detail.ok:
                 info = detail.json().get("jobPostingInfo") or {}
                 location = "; ".join(x for x in [info.get("location"), *(info.get("additionalLocations") or [])] if x) or location
+                description = plain_text(info.get("jobDescription"))
             postings.append(Posting(
                 list_key=list_key, row_id=path.rsplit("_", 1)[-1], title=title, company=company,
                 location=_workday_location(location), salary="", size=None, date=f"{when:%b} {when.day}",
                 work_model=None, apply_url=f"https://{host}/{site}{path}", posted_at=None, source=f"{company} careers site",
+                description=description,
             ))
         if len(jobs) < WORKDAY_PAGE:
             break
@@ -139,11 +142,16 @@ def fetch_greenhouse(session: requests.Session, board: str, company: str, list_k
         when = datetime.fromisoformat(stamp).astimezone(timezone.utc)
         if now - when > RECENT:
             continue
+        description = ""
+        if job.get("id"):  # the list leaves descriptions out; fetch them only for jobs we keep
+            detail = session.get(f"{GREENHOUSE_API.format(board=board)}/{job['id']}", timeout=TIMEOUT)
+            if detail.ok:
+                description = plain_text(detail.json().get("content"))
         postings.append(Posting(
             list_key=list_key, row_id=str(job.get("id") or url), title=title, company=company,
             location=str((job.get("location") or {}).get("name") or ""), salary="", size=None,
             date=f"{when:%b} {when.day}", work_model=None, apply_url=url, posted_at=when,
-            source=f"{company} careers site",
+            source=f"{company} careers site", description=description,
         ))
     return postings
 
@@ -224,6 +232,8 @@ def fetch_amazon(session: requests.Session, company: str, list_key: str,
             location=f"{city}, {state}" if city and state else str(job.get("normalized_location") or ""),
             salary="", size=None, date=f"{when:%b} {when.day}", work_model=None,
             apply_url=f"https://www.amazon.jobs{path}", posted_at=None, source=f"{company} careers site",
+            description=plain_text("\n".join(str(job.get(k) or "") for k in
+                                              ("description", "basic_qualifications", "preferred_qualifications"))),
         ))
     return postings
 
@@ -332,6 +342,9 @@ def fetch_lever(session: requests.Session, board: str, company: str, list_key: s
             list_key=list_key, row_id=str(job.get("id") or url), title=title, company=company,
             location="; ".join(cats.get("allLocations") or [cats.get("location") or ""]), salary="", size=None,
             date=f"{when:%b} {when.day}", work_model=None, apply_url=url, posted_at=when, source=f"{company} careers site",
+            description=plain_text("\n".join([str(job.get("descriptionPlain") or ""),
+                                               *(f"{x.get('text')}\n{x.get('content')}" for x in job.get("lists") or []),
+                                               str(job.get("additionalPlain") or "")])),
         ))
     return postings
 
@@ -366,6 +379,7 @@ def fetch_ashby(session: requests.Session, board: str, company: str, list_key: s
             list_key=list_key, row_id=str(job.get("id") or url), title=title, company=company,
             location="; ".join(x for x in places if x), salary="", size=None, date=f"{when:%b} {when.day}",
             work_model=None, apply_url=url, posted_at=when, source=f"{company} careers site",
+            description=plain_text(job.get("descriptionPlain") or job.get("descriptionHtml")),
         ))
     return postings
 

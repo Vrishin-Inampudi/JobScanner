@@ -251,3 +251,55 @@ criteria:
     - Ernst & Young
     - KPMG
     - AT&T
+
+# Skills to point out in each email: ✓ ones you have, ✗ ones you don't. Only a highlight;
+# it never changes which jobs are sent. Each entry is a name, or [name, other spellings...].
+# Short names (C, Go, AWS) only match with that exact capitalization.
+skills:
+  have:
+    - Python
+    - C++
+    - C
+    - [JavaScript, JS]
+    - TypeScript
+    - React
+    - FastAPI
+    - HTML
+    - [AWS, Amazon Web Services]
+    - [GCP, Google Cloud]
+    - Git
+    - Linux
+    - Docker
+    - Ansible
+    - Wireshark
+    - [Kali, Kali Linux]
+    - VMware
+    - Nessus
+    - ACAS
+    - STIG
+    - [REST, REST API, RESTful]
+    - [TCP/IP, TCP, UDP]
+    - DNS
+    - [WireGuard, Tailscale, VPN]
+    - [Firewalls, firewall, Palo Alto, Panorama, NGFW]
+    - [Incident response, IR]
+    - [Log analysis, log analytics]
+    - [Vulnerability management, vulnerability scanning, vulnerability assessment]
+    - SIEM
+    - [MITRE ATT&CK, ATT&CK, MITRE]
+    - [RMF, Risk Management Framework, ATO]
+    - [Risk assessment, risk assessments]
+    - [Phishing, Proofpoint]
+    - [EDR, CrowdStrike, endpoint protection]
+    - [Security+, Security Plus, Sec+]
+    - [AWS Certified, Cloud Practitioner]
+    - [Packet analysis, packet capture, pcap]
+  lack:
+    - Java
+    - [Go, Golang]
+    - Rust
+    - [C#, .NET]
+    - Kotlin
+    - Ruby
+    - PHP
+    - Scala
