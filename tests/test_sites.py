@@ -212,3 +212,16 @@ def test_session_retries_server_errors():
     from jobscanner.source import new_session
     retry = new_session().get_adapter("https://bah.wd1.myworkdayjobs.com").max_retries
     assert retry.total == 2 and 502 in retry.status_forcelist and retry.allowed_methods is None
+
+
+def test_intern_facet_ignores_internal_audit():
+    from jobscanner.sites import _intern_facet
+    facets = [{"facetParameter": "workerSubType", "values": [{"descriptor": "Internal Audit Quality Assurance", "id": "ia"}]},
+              {"facetParameter": "Job_Family_Group", "values": [{"descriptor": "Intern - Group", "id": "int"}]}]
+    assert _intern_facet(facets) == ("Job_Family_Group", "int")
+
+
+def test_banks_summer_analyst_counts_as_internship():
+    from jobscanner.config import ListSpec
+    spec = ListSpec(key="site:citi", title_require=["intern", "co-op", "summer analyst"], title_include=["cyber"])
+    assert spec.wants("Technology, Cyber Security, Summer Analyst, Irving")

@@ -25,7 +25,7 @@ GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs"
 _BOARD = re.compile(r"^[a-z0-9_-]+$", re.I)
 _SITE = re.compile(r"^/(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)/?$")
 # Facets that mark a job as an internship, by the names companies commonly use.
-INTERN_FACETS = ("workerSubType", "Job_Family", "jobFamilyGroup", "timeType")
+INTERN_FACETS = ("workerSubType", "Job_Family", "jobFamilyGroup", "Job_Family_Group", "timeType")
 
 
 def workday_parts(url: str) -> tuple[str, str, str]:
@@ -60,7 +60,7 @@ def _intern_facet(facets: list) -> tuple[str, str] | None:
                 continue
             values = [x for v in f.get("values") or [] for x in (v.get("values") or [v])]
             for v in values:
-                if re.search(r"\bintern", str(v.get("descriptor") or ""), re.I) and v.get("id"):
+                if re.search(r"\bintern(s|ships?)?\b", str(v.get("descriptor") or ""), re.I) and v.get("id"):  # not "Internal Audit"
                     return name, v["id"]
     return None
 

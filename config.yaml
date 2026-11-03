@@ -28,9 +28,9 @@ lists:
 # them. Sites only say which day a job went up, so the first check of a new site just
 # records what's there; after that you get each new job. Every site uses these filters.
 company_sites:
-  title_require: [intern, co-op]
+  title_require: [intern, co-op, summer analyst]   # banks call interns "summer analysts"
   title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team, firewall]
-  title_exclude: [physical security, social security, supply chain]
+  title_exclude: [physical security, social security, supply chain, business network]
   sites:
     # Security and networking
     - {company: Palo Alto Networks, workday: "https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers"}
@@ -54,6 +54,18 @@ company_sites:
     - {company: Verkada, greenhouse: verkada}
     - {company: Hewlett Packard Enterprise, workday: "https://hpe.wd5.myworkdayjobs.com/Jobsathpe"}
     - {company: Broadcom, workday: "https://broadcom.wd1.myworkdayjobs.com/External_Career"}
+    - {company: Trend Micro, workday: "https://trendmicro.wd3.myworkdayjobs.com/External"}
+    - {company: SailPoint, workday: "https://sailpoint.wd1.myworkdayjobs.com/SailPoint"}
+    - {company: Trellix, workday: "https://trellix.wd1.myworkdayjobs.com/EnterpriseCareers"}
+    - {company: Tanium, greenhouse: tanium}
+    - {company: Fastly, greenhouse: fastly}
+    - {company: Dragos, greenhouse: dragos}
+    - {company: Recorded Future, greenhouse: recordedfuture}
+    - {company: Rubrik, greenhouse: rubrik}
+    # Telecom (network engineering)
+    - {company: T-Mobile, workday: "https://tmobile.wd1.myworkdayjobs.com/External"}
+    - {company: Verizon, workday: "https://verizon.wd12.myworkdayjobs.com/verizon-careers"}
+    - {company: Comcast, workday: "https://comcast.wd115.myworkdayjobs.com/Comcast_Careers"}
     # Big tech
     - {company: Apple, careers: apple}
     - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
@@ -63,7 +75,14 @@ company_sites:
     - {company: Adobe, workday: "https://adobe.wd5.myworkdayjobs.com/external_experienced"}
     - {company: Intel, workday: "https://intel.wd1.myworkdayjobs.com/External"}
     - {company: Micron, workday: "https://micron.wd1.myworkdayjobs.com/External"}
-    - {company: Workday, workday: "https://workday.wd5.myworkdayjobs.com/Workday"}
+    - {company: Workday, workday: "https://workday.wd5.myworkdayjobs.com/Workday_Early_Career"}
+    - {company: Snap, workday: "https://snapchat.wd1.myworkdayjobs.com/snap"}
+    - {company: PayPal, workday: "https://paypal.wd1.myworkdayjobs.com/jobs"}
+    - {company: Zoom, workday: "https://zoom.wd5.myworkdayjobs.com/Zoom"}
+    - {company: Autodesk, workday: "https://autodesk.wd1.myworkdayjobs.com/Ext"}
+    - {company: Block, greenhouse: block}
+    - {company: Twilio, greenhouse: twilio}
+    - {company: Dropbox, greenhouse: dropbox}
     # AI, aerospace and hard tech
     - {company: SpaceX, greenhouse: spacex}
     - {company: Anduril Industries, greenhouse: andurilindustries}
@@ -87,6 +106,19 @@ company_sites:
     - {company: Booz Allen Hamilton, workday: "https://bah.wd1.myworkdayjobs.com/BAH_Jobs"}
     - {company: Leidos, workday: "https://leidos.wd5.myworkdayjobs.com/External"}
     - {company: General Dynamics Information Technology, workday: "https://gdit.wd5.myworkdayjobs.com/External_Career_Site"}
+    - {company: CACI, workday: "https://caci.wd1.myworkdayjobs.com/External"}
+    - {company: Aerospace Corporation, workday: "https://aero.wd5.myworkdayjobs.com/External"}
+    - {company: Parsons, workday: "https://parsons.wd5.myworkdayjobs.com/Search"}
+    - {company: Blue Origin, workday: "https://blueorigin.wd5.myworkdayjobs.com/BlueOrigin"}
+    - {company: Draper, workday: "https://draper.wd5.myworkdayjobs.com/Draper_Careers"}
+    # Banks and consulting (big cyber programs)
+    - {company: Citi, workday: "https://citi.wd5.myworkdayjobs.com/2"}
+    - {company: Wells Fargo, workday: "https://wf.wd1.myworkdayjobs.com/WellsFargoJobs"}
+    - {company: Morgan Stanley, workday: "https://ms.wd5.myworkdayjobs.com/External"}
+    - {company: Fidelity Investments, workday: "https://fmr.wd1.myworkdayjobs.com/targeted"}
+    - {company: SoFi, greenhouse: sofi}
+    - {company: PwC, workday: "https://pwc.wd3.myworkdayjobs.com/US_Entry_Level_Careers"}
+    - {company: Accenture, workday: "https://accenture.wd103.myworkdayjobs.com/AccentureCareers"}
     # Software, fintech and trading
     - {company: Stripe, greenhouse: stripe}
     - {company: Datadog, greenhouse: datadog}
@@ -113,10 +145,11 @@ company_sites:
     - {company: Discord, greenhouse: discord}
     - {company: Roblox, greenhouse: roblox}
     - {company: Figma, greenhouse: figma}
-    # Not checkable directly (their job sites block automated requests or only load in a
-    # browser): Tesla, Meta, Microsoft, Netflix, Uber, Snap, Lockheed Martin, L3Harris,
-    # AMD, Qualcomm, Citadel, Two Sigma, Bloomberg, MITRE. They're top companies below,
-    # so their jobs on intern-list.com and the GitHub list still get the ★.
+    # Not checkable directly (their job sites block automated requests, only load in a
+    # browser, or use a system without a public feed): Tesla, Meta, Microsoft, Netflix, Uber,
+    # Lockheed Martin, L3Harris, AMD, Qualcomm, Dell, ServiceNow, Intuit, JPMorgan Chase,
+    # Goldman Sachs, the national labs and others. They're top companies below, so their jobs
+    # on intern-list.com and the GitHub list still get the ★.
 # Skip jobs you can't take. These apply before the criteria below.
 eligibility:
   graduation: 2028-05     # your graduation (YYYY-MM): skips roles for other grad classes
@@ -163,7 +196,6 @@ criteria:
     - Tesla
     - Netflix
     - Uber
-    - Snap
     - Lockheed Martin
     - L3Harris
     - Raytheon
@@ -181,3 +213,41 @@ criteria:
     - MITRE
     - Johns Hopkins Applied Physics Laboratory
     - MIT Lincoln Laboratory
+    # Security vendors
+    - CyberArk
+    - Check Point
+    - Check Point Software
+    - Qualys
+    - Darktrace
+    - Illumio
+    - Cohesity
+    - Sophos
+    - Mandiant
+    # Tech
+    - Dell
+    - ServiceNow
+    - Intuit
+    - Oracle
+    - Atlassian
+    # Finance
+    - JPMorgan Chase
+    - JPMorganChase
+    - Goldman Sachs
+    - American Express
+    - Bank of America
+    - BlackRock
+    - Charles Schwab
+    # Defense, labs and consulting
+    - SAIC
+    - Peraton
+    - ManTech
+    - BAE Systems
+    - General Atomics
+    - General Atomics Aeronautical Systems
+    - Lawrence Livermore National Laboratory
+    - Sandia National Laboratories
+    - Deloitte
+    - EY
+    - Ernst & Young
+    - KPMG
+    - AT&T
