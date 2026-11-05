@@ -1,20 +1,27 @@
 # JobScanner
 
-Email alerts, every 30 minutes, of new internships from [intern-list.com](https://www.intern-list.com/)
-that are worth your time. It runs free on GitHub Actions, so nothing runs on your computer.
+Email alerts, every 30 minutes, of new internships that are worth your time, from
+[intern-list.com](https://www.intern-list.com/), a community GitHub internship list, and
+about 100 top companies' own career sites. It runs free on GitHub Actions, so nothing runs on your computer.
 
 Every 30 minutes (or however often you schedule it) it checks the lists you choose. It emails **every** newly posted internship
-that matches your rules, ranked best-first. If nothing new matches, it sends no email.
+that matches your rules, ranked best-first. Top matches arrive right away and the rest
+can wait for one morning digest. If nothing new matches, it sends no email.
 It never sends the same posting twice.
 
 The default [`config.yaml`](config.yaml) watches **Cybersecurity** plus **network
-engineering** roles. A posting qualifies if it meets any one of these:
+engineering** roles, on intern-list, SimplifyJobs' Summer 2027 list and 106 company
+career sites (security vendors, telecom, big tech, defense, banks and consulting).
+A posting qualifies if it meets any one of these:
 
 - pays **≥ $35/hr**
 - is in the **Bay Area, LA, San Diego, Seattle, NYC, Boston, Chicago, Austin, DC** or
   anywhere in **CT**
 - is at a **large company** (10,000+ employees) or a priority company, such as
-  Palo Alto Networks, CrowdStrike, NVIDIA, Apple or Meta
+  Palo Alto Networks, CrowdStrike, NVIDIA, Apple or Meta, and is also in one of those
+  places, remote, or posted without a specific city
+
+It skips roles for graduating classes other than May 2028 and PhD-only roles.
 
 The ranking puts priority companies first, then higher pay, then a preferred location,
 then bigger companies, then the newest postings.
@@ -41,7 +48,9 @@ then bigger companies, then the newest postings.
    matching jobs posted in the last `max_age_hours`, then only newer ones after that.
 
 GitHub emails you when a run fails, for example if intern-list.com changes its
-layout. So if it breaks, you'll hear about it instead of it going quiet.
+layout. So if it breaks, you'll hear about it instead of it going quiet. Brief site
+outages are retried, and one company's career site being down only logs a warning and
+is checked again next run; it doesn't fail the run.
 
 ### Make the scheduled runs reliable (recommended)
 
@@ -214,8 +223,11 @@ the site, then reads each list's newest jobs from the same public jobright.ai fe
 table uses, page by page until it passes `max_age_hours`. No account or API key is
 needed. GitHub lists are read from the repo's public `listings.json`, looking back
 three days because those listings are often dated by day only. Company career sites
-are read from their public Workday and Greenhouse job feeds
-([`jobscanner/sites.py`](jobscanner/sites.py)).
+are read from their public Workday (early-career site where there is one), Greenhouse,
+Lever, Ashby and Oracle job feeds, and from Amazon's, Google's and Apple's own job
+search ([`jobscanner/sites.py`](jobscanner/sites.py)), including job descriptions for
+the skills highlight where the feed has them. Requests that hit a 5xx error are retried
+twice with backoff.
 
 The jobs it has already seen and emailed are stored in `seen.json` on the repo's `state`
 branch. Each run replaces that branch with a single fresh commit, so it never builds up
