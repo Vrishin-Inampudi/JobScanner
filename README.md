@@ -145,7 +145,8 @@ Tune it under `ai` in `config.yaml`: which models to use, the draft threshold, a
 limits. By default a small fast model (`claude-haiku-5-5`) does the scoring, and
 `claude-opus-5-5` writes at most 3 drafts a day. Scoring costs well under a cent per
 posting; a draft costs a few cents. Each posting is scored once. Drafts only use what's in
-your resume, so read them before sending. If the AI service has trouble, the alert still
+your resume, so read them before sending. Scores, reasons and drafts go only to your
+email and your private Sheet; they are never written to the state file on the repo. If the AI service has trouble, the alert still
 goes out, just without a score.
 
 ## Change what it looks for
@@ -204,7 +205,7 @@ criteria:
   (Eastern). Matches at top companies, or paying at least `min_hourly_pay`, still arrive
   right away. Leave it out to get everything right away.
 - **`weekly_summary`**: `{day: sunday, hour: 18}` sends one email a week (Eastern): how
-  many jobs matched, what you applied to, the matches still waiting on you (best fit
+  many jobs matched, what you applied to, the matches still waiting on you (newest
   first), and applications older than `follow_up_after_days` with no news. The counts of
   what you applied to need the tracker. Leave it out to turn it off.
 - **`company_needs_location`**: when `true`, top-company and large-company matches must

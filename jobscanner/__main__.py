@@ -109,14 +109,21 @@ def run(
     look = dict(now=now, check_every=cfg.check_every_minutes, notes=_trouble_notes(state.trouble, specs, now),
                 sources=_sources(specs), dashboard=tracker.dashboard_url() or "")
     today = now.astimezone(emailer.DISPLAY_TZ)
-    if matches:
-        if assistant == "auto":
-            assistant = ai.from_env(cfg.ai)
-        _assess(matches, assistant, cfg.ai, state, today.date().isoformat())
     # With a daily digest, only urgent matches are emailed now; the rest wait for the digest.
     digest_on = cfg.digest_hour is not None and not test
     urgent = [m for m in matches if not digest_on or is_urgent(m, cfg)]
     later = [m for m in matches if m not in urgent]
+
+    def assess(found: list[Match]) -> None:
+        """Score matches just before they're emailed. Scores, reasons and drafts come from your
+        resume, so they live only in the email and your private Sheet, never in saved state
+        (the state file sits on a branch of what may be a public repo)."""
+        nonlocal assistant
+        if found:
+            if assistant == "auto":
+                assistant = ai.from_env(cfg.ai)
+            _assess(found, assistant, cfg.ai, state, today.date().isoformat())
+    assess(urgent)
 
     def deliver(subject: str, text: str, html_body: str, what: str, drafts=()) -> None:
         if dry_run:
@@ -138,23 +145,21 @@ def run(
     # The digest covers what was queued before this run; this run's go in the next one.
     if digest_on and today.hour >= cfg.digest_hour and state.last_digest_on != today.date().isoformat():
         queued = rank([m for p in state.pending if not marks.hides(p) and (m := evaluate(p, cfg.criteria))])
-        for m in queued:   # scored when they were found
-            saved = state.fits.get(m.posting.job_keys[0]) or {}
-            m.fit, m.fit_why, m.draft = saved.get("score"), saved.get("why", ""), saved.get("draft", "")
+        assess(queued)   # queued matches are scored now, not when found: nothing about them is stored
         if queued:
             subject, text, html_body = emailer.render(queued, links=tracker.links, digest=True, **look)
             deliver(subject, text, html_body, f"the daily digest of {len(queued)} postings", emailer.attachments(queued))
             emailed_now = True
-        state.pending, state.fits, state.last_digest_on = [], {}, today.date().isoformat()
+            if not dry_run:
+                tracker.push(session, queued, now)   # the dashboard already has them; this adds their scores
+        state.pending, state.last_digest_on = [], today.date().isoformat()
     if later:
         state.pending += [m.posting for m in later]
-        state.fits.update({m.posting.job_keys[0]: {"score": m.fit, "why": m.fit_why, "draft": m.draft}
-                           for m in later if m.fit is not None})
         log.info("queued %d less-urgent postings for the %02d:00 digest", len(later), cfg.digest_hour)
 
     if not preview:
         state.sent += [{"at": now.isoformat(), "id": m.posting.job_keys[0], "company": m.posting.company,
-                        "title": m.posting.title, "url": m.posting.apply_url, "fit": m.fit} for m in matches]
+                        "title": m.posting.title, "url": m.posting.apply_url} for m in matches]
         if not dry_run:
             tracker.push(session, matches, now)   # the dashboard gets every match, urgent or not
         day, hour = cfg.weekly_summary or (None, None)
@@ -222,7 +227,7 @@ def _week(sent: list[dict], marks: tracker.Marks, now: datetime, follow_up_days:
     since = now - timedelta(days=7)
     recent = [s for s in sent if datetime.fromisoformat(s["at"]) >= since]
     waiting = [s for s in recent if s["id"] not in marks.jobs]
-    waiting.sort(key=lambda s: (s.get("fit") is None, -(s.get("fit") or 0), s["at"]))
+    waiting.sort(key=lambda s: s["at"], reverse=True)   # newest first; fit scores aren't kept in state
     if not marks.loaded:   # no tracker: we can't know what you've applied to
         return len(recent), waiting, [], None
     counts = {status: sum(1 for r in marks.with_status(status) if r["marked"] and r["marked"] >= since)

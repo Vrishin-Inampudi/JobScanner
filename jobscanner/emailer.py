@@ -332,7 +332,7 @@ def render_weekly(found: int, waiting: list[dict], follow_up: list[dict], counts
                   dashboard: str = "", follow_up_days: int = 10) -> tuple[str, str, str]:
     """The weekly summary: what matched, what you did about it, and what's still waiting.
 
-    ``waiting`` and ``follow_up`` are jobs as {company, title, url, fit / days}; ``counts`` has your
+    ``waiting`` and ``follow_up`` are jobs as {company, title, url} (plus days for follow-ups); ``counts`` has your
     applied / interview / offer / rejected numbers for the week, or is None without the tracker.
     """
     now = now or datetime.now(timezone.utc)
@@ -344,7 +344,7 @@ def render_weekly(found: int, waiting: list[dict], follow_up: list[dict], counts
     tiles = [_tile(found, "Matches found")]
     tiles += [_tile(counts[k], label) for k, label in (("applied", "Applied"), ("interview", "Interviews"), ("offer", "Offers"))
               if k in counts]
-    fit = lambda j: f"Fit {j['fit']}" if j.get("fit") is not None else ""
+    fit = lambda j: ""
     late = lambda j: f"applied {j['days']} days ago"
     more = f" (showing the top {MAX_LISTED})" if len(waiting) > MAX_LISTED else ""
     body = (f'<tr><td style="padding:0 0 6px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'

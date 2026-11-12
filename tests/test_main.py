@@ -464,6 +464,8 @@ def test_ai_scores_matches_and_attaches_drafts_for_the_best(site, paths):
     assert "Fit 90" in html and "Fit 50" in html and "Fit: 90/100. why a" in text
     assert len(attached) == 1 and attached[0][0].startswith("Draft - NVIDIA - great Security Intern")
     assert "COVER LETTER for great Security Intern" in attached[0][1]
+    saved = Path(paths[1]).read_text()
+    assert "COVER LETTER" not in saved and "why a" not in saved   # the state file may be public
     # Later the same day the daily limit is used up; nothing already sent is scored again.
     site["cs"].append(posting("d", company="NVIDIA", title="great Security Intern D", minutes_ago=1))
     run(*paths, session=object(), sender=outbox, now=NOW + timedelta(minutes=30), assistant=helper)
@@ -477,17 +479,19 @@ def test_without_ai_nothing_changes(site, paths):
     assert "Fit" not in outbox[0][2] and "Fit:" not in outbox[0][1]
 
 
-def test_queued_matches_keep_their_score_for_the_digest(site, paths):
+def test_queued_matches_are_scored_for_the_digest_and_nothing_from_the_resume_is_saved(site, paths):
     Path(paths[0]).write_text(CONFIG.replace("locations: [CA]", "locations: [TX]") + "digest_hour: 8\n")
     site["cs"] = [posting("q", company="Acme", title="great Security Intern", salary="")]   # matches on location only
     helper, outbox = FakeAssistant(), DraftBox()
     run(*paths, session=object(), sender=outbox, now=NOW, assistant=helper)
-    assert outbox == []                                             # not urgent: queued
+    assert outbox == [] and helper.scored == []                     # not urgent: queued, and not scored yet
+    assert "why q" not in Path(paths[1]).read_text()
     morning = datetime(2026, 10, 22, 13, 0, tzinfo=timezone.utc)    # 9 AM Eastern
     run(*paths, session=object(), sender=outbox, now=morning, assistant=helper)
     assert "Daily digest" in outbox[0][0] and "Fit 90" in outbox[0][2] and len(outbox[0][3]) == 1
-    assert helper.scored == ["q"]                                   # scored once, when it was found
-    assert json.loads(Path(paths[1]).read_text())["fits"] == {}
+    assert helper.scored == ["q"]                                   # scored once, when it was emailed
+    saved = Path(paths[1]).read_text()
+    assert "fits" not in json.loads(saved) and "COVER LETTER" not in saved and "why q" not in saved and '"fit"' not in saved
 
 
 def test_weekly_summary_counts_the_week_and_lists_what_is_waiting(site, paths, monkeypatch):
