@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from . import emailer, sites, source, tracker
+from . import ai, emailer, notify, sites, source, tracker
 from .config import load_config
 from .filters import Match, evaluate, rank
 from .state import State
@@ -42,8 +42,9 @@ def run(
     preview: bool = False,
     test: bool = False,
     session=None,
-    sender: Callable[[str, str, str], None] = emailer.send,
+    sender: Callable[..., None] = emailer.send,
     now: datetime | None = None,
+    assistant: ai.Assistant | None | str = "auto",
 ) -> int:
     cfg = load_config(config_path)
     now = now or datetime.now(timezone.utc)
@@ -106,37 +107,62 @@ def run(
     matches = rank(matches)
     state.trouble = {k: v for k, v in state.trouble.items() if any(s.key == k for s in specs)}  # sites since removed
     look = dict(now=now, check_every=cfg.check_every_minutes, notes=_trouble_notes(state.trouble, specs, now),
-                sources=_sources(specs))
+                sources=_sources(specs), dashboard=tracker.dashboard_url() or "")
+    today = now.astimezone(emailer.DISPLAY_TZ)
+    if matches:
+        if assistant == "auto":
+            assistant = ai.from_env(cfg.ai)
+        _assess(matches, assistant, cfg.ai, state, today.date().isoformat())
     # With a daily digest, only urgent matches are emailed now; the rest wait for the digest.
     digest_on = cfg.digest_hour is not None and not test
     urgent = [m for m in matches if not digest_on or is_urgent(m, cfg)]
     later = [m for m in matches if m not in urgent]
 
-    def deliver(subject: str, text: str, html_body: str, what: str) -> None:
+    def deliver(subject: str, text: str, html_body: str, what: str, drafts=()) -> None:
         if dry_run:
             print(f"Subject: {subject}\n\n{text}")
         else:
-            sender(subject, text, html_body)  # raises -> state not saved, retried next run
+            # raises -> state not saved, retried next run
+            sender(subject, text, html_body, attachments=drafts) if drafts else sender(subject, text, html_body)
             log.info("sent %s", what)
         state.last_email_at = now
 
     emailed_now = False
     if urgent:
         subject, text, html_body = emailer.render(urgent, links=tracker.links, **look)
-        deliver(f"[Test] {subject}" if test else subject, text, html_body, f"{len(urgent)} postings")
+        deliver(f"[Test] {subject}" if test else subject, text, html_body, f"{len(urgent)} postings",
+                emailer.attachments(urgent))
         emailed_now = True
+        if not (dry_run or test):
+            notify.send(session, urgent)   # after the email: if that failed, this run is retried
     # The digest covers what was queued before this run; this run's go in the next one.
-    today = now.astimezone(emailer.DISPLAY_TZ)
     if digest_on and today.hour >= cfg.digest_hour and state.last_digest_on != today.date().isoformat():
         queued = rank([m for p in state.pending if not marks.hides(p) and (m := evaluate(p, cfg.criteria))])
+        for m in queued:   # scored when they were found
+            saved = state.fits.get(m.posting.job_keys[0]) or {}
+            m.fit, m.fit_why, m.draft = saved.get("score"), saved.get("why", ""), saved.get("draft", "")
         if queued:
             subject, text, html_body = emailer.render(queued, links=tracker.links, digest=True, **look)
-            deliver(subject, text, html_body, f"the daily digest of {len(queued)} postings")
+            deliver(subject, text, html_body, f"the daily digest of {len(queued)} postings", emailer.attachments(queued))
             emailed_now = True
-        state.pending, state.last_digest_on = [], today.date().isoformat()
+        state.pending, state.fits, state.last_digest_on = [], {}, today.date().isoformat()
     if later:
         state.pending += [m.posting for m in later]
+        state.fits.update({m.posting.job_keys[0]: {"score": m.fit, "why": m.fit_why, "draft": m.draft}
+                           for m in later if m.fit is not None})
         log.info("queued %d less-urgent postings for the %02d:00 digest", len(later), cfg.digest_hour)
+
+    if not preview:
+        state.sent += [{"at": now.isoformat(), "id": m.posting.job_keys[0], "company": m.posting.company,
+                        "title": m.posting.title, "url": m.posting.apply_url, "fit": m.fit} for m in matches]
+        if not dry_run:
+            tracker.push(session, matches, now)   # the dashboard gets every match, urgent or not
+        day, hour = cfg.weekly_summary or (None, None)
+        if today.weekday() == day and today.hour >= hour and state.last_weekly_on != today.date().isoformat():
+            subject, text, html_body = emailer.render_weekly(
+                *_week(state.sent, marks, now, cfg.follow_up_after_days), follow_up_days=cfg.follow_up_after_days, **look)
+            deliver(subject, text, html_body, "the weekly summary")
+            emailed_now, state.last_weekly_on = True, today.date().isoformat()
 
     if not emailed_now and cfg.empty_email_every_hours and not failures and not test:
         # Only claim "nothing posted" when every list was actually checked.
@@ -170,6 +196,43 @@ def run(
     for f in failures:
         log.error(f)
     return 1 if failures else 0
+
+
+def _assess(matches: list[Match], assistant, cfg: ai.AIConfig, state: State, today: str) -> None:
+    """Score each match against your resume, and draft a cover letter for the best few per day."""
+    if assistant is None:
+        return
+    for m in matches[: cfg.max_scored_per_run]:   # ranked best-first, so the cap drops the least important
+        fit = assistant.score(m.posting)
+        if fit:
+            m.fit, m.fit_why = fit.score, fit.why
+    scored = sum(m.fit is not None for m in matches)
+    used = state.drafts.get("count", 0) if state.drafts.get("on") == today else 0
+    best = sorted((m for m in matches if m.fit is not None and m.fit >= cfg.draft_min_score), key=lambda m: -m.fit)
+    written = 0
+    for m in best[: max(0, cfg.max_drafts_per_day - used)]:
+        m.draft = assistant.draft(m.posting) or ""
+        written += bool(m.draft)
+    state.drafts = {"on": today, "count": used + written}
+    log.info("AI scored %d of %d matches and wrote %d drafts", scored, len(matches), written)
+
+
+def _week(sent: list[dict], marks: tracker.Marks, now: datetime, follow_up_days: int):
+    """(matches found, still waiting, worth a follow-up, your counts) for the weekly summary."""
+    since = now - timedelta(days=7)
+    recent = [s for s in sent if datetime.fromisoformat(s["at"]) >= since]
+    waiting = [s for s in recent if s["id"] not in marks.jobs]
+    waiting.sort(key=lambda s: (s.get("fit") is None, -(s.get("fit") or 0), s["at"]))
+    if not marks.loaded:   # no tracker: we can't know what you've applied to
+        return len(recent), waiting, [], None
+    counts = {status: sum(1 for r in marks.with_status(status) if r["marked"] and r["marked"] >= since)
+              for status in (tracker.APPLIED, tracker.INTERVIEW, tracker.OFFER, tracker.REJECTED)}
+    stale = [r for r in marks.with_status(tracker.APPLIED)
+             if r["marked"] and now - r["marked"] >= timedelta(days=follow_up_days)]
+    stale.sort(key=lambda r: r["marked"])
+    follow_up = [{"company": r["company"], "title": r["title"], "days": (now - r["marked"]).days,
+                  "url": r["link"] if r["link"].startswith("https://") else "#"} for r in stale]
+    return len(recent), waiting, follow_up, counts
 
 
 def is_urgent(m: Match, cfg) -> bool:

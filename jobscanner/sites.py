@@ -1,7 +1,7 @@
 """Read internships straight from company career sites.
 
-Supported: Workday, Greenhouse, Lever, Ashby and Oracle Recruiting job boards (used by many companies),
-plus Amazon, Google and Apple's own career sites. Jobs show up here before aggregators
+Supported: Workday, Greenhouse, Lever, Ashby, Oracle Recruiting, SmartRecruiters and Eightfold job boards
+(used by many companies), plus Amazon, Google and Apple's own career sites. Jobs show up here before aggregators
 copy them. Not every site gives an exact posting time, so newness comes from what we've
 seen before (see ``__main__``).
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
@@ -440,6 +440,107 @@ def fetch_ashby(session: requests.Session, board: str, company: str, list_key: s
     return postings
 
 
+SMARTRECRUITERS_API = "https://api.smartrecruiters.com/v1/companies/{board}/postings"
+SMARTRECRUITERS_PAGE = 100
+SMARTRECRUITERS_MAX_PAGES = 5
+
+
+def fetch_smartrecruiters(session: requests.Session, board: str, company: str, list_key: str,
+                          wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
+    """Recent US internships on a SmartRecruiters board (jobs.smartrecruiters.com/<board>)."""
+    if not _BOARD.match(board):
+        raise SourceError(f"{company}: bad SmartRecruiters company name {board!r}")
+    now = now or datetime.now(timezone.utc)
+    api = SMARTRECRUITERS_API.format(board=board)
+    postings = []
+    for n in range(SMARTRECRUITERS_MAX_PAGES):
+        resp = session.get(api, params={"q": "intern", "country": "us", "limit": SMARTRECRUITERS_PAGE,
+                                        "offset": n * SMARTRECRUITERS_PAGE}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        jobs = resp.json().get("content") or []
+        for job in jobs:
+            title, job_id = str(job.get("name") or "").strip(), str(job.get("id") or "")
+            try:
+                when = datetime.fromisoformat(str(job.get("releasedDate")).replace("Z", "+00:00")).astimezone(timezone.utc)
+            except ValueError:
+                continue
+            if not title or not re.fullmatch(r"\d+", job_id) or now - when > RECENT or not wants(title):
+                continue
+            loc = job.get("location") or {}
+            place = ", ".join(x for x in (loc.get("city"), loc.get("region")) if x)
+            url = f"https://jobs.smartrecruiters.com/{board}/{job_id}"
+            description = ""
+            if details(url):
+                detail = session.get(f"{api}/{job_id}", timeout=TIMEOUT)
+                if detail.ok:
+                    sections = ((detail.json().get("jobAd") or {}).get("sections") or {})
+                    description = plain_text("\n".join(str((sections.get(k) or {}).get("text") or "") for k in
+                                                       ("jobDescription", "qualifications", "additionalInformation")))
+            postings.append(Posting(
+                list_key=list_key, row_id=job_id, title=title, company=company,
+                location=f"{place}, United States" if place else "United States", salary="", size=None,
+                date=f"{when:%b} {when.day}", work_model="Remote" if loc.get("remote") else None, apply_url=url,
+                posted_at=when, source=f"{company} careers site", description=description,
+            ))
+        if len(jobs) < SMARTRECRUITERS_PAGE:
+            break
+    return postings
+
+
+EIGHTFOLD_PAGE = 10        # the most Eightfold returns per request
+EIGHTFOLD_MAX_PAGES = 10
+
+
+def eightfold_parts(url: str) -> tuple[str, str]:
+    """'https://explore.jobs.netflix.net/careers?domain=netflix.com' -> (host, domain)."""
+    u = urlsplit(url)
+    domain = (parse_qs(u.query).get("domain") or [""])[0]
+    if u.scheme != "https" or not u.hostname or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", domain):
+        raise SourceError(f"not an Eightfold careers URL (https://<site>/careers?domain=<company.com>): {url!r}")
+    return u.hostname, domain
+
+
+def fetch_eightfold(session: requests.Session, url: str, company: str, list_key: str,
+                    wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
+    """Recent US internships on an Eightfold careers site, newest first, until they're older than RECENT."""
+    now = now or datetime.now(timezone.utc)
+    host, domain = eightfold_parts(url)
+    api = f"https://{host}/api/apply/v2/jobs"
+    postings = []
+    for n in range(EIGHTFOLD_MAX_PAGES):
+        resp = session.get(api, params={"domain": domain, "query": "intern", "location": "United States", "sort_by": "timestamp",
+                                        "num": EIGHTFOLD_PAGE, "start": n * EIGHTFOLD_PAGE}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        jobs = resp.json().get("positions") or []
+        too_old = False
+        for job in jobs:
+            title, job_id, stamp = str(job.get("name") or "").strip(), str(job.get("id") or ""), job.get("t_create")
+            if not isinstance(stamp, (int, float)) or not re.fullmatch(r"\d+", job_id):
+                continue
+            when = datetime.fromtimestamp(stamp, timezone.utc)
+            if now - when > RECENT:
+                too_old = True
+                continue
+            if not title or not wants(title):
+                continue
+            job_url = f"https://{host}/careers/job/{job_id}"
+            description = ""
+            if details(job_url):
+                detail = session.get(f"{api}/{job_id}", params={"domain": domain}, timeout=TIMEOUT)
+                if detail.ok:
+                    description = plain_text(detail.json().get("job_description"))
+            places = job.get("locations") or [job.get("location") or ""]
+            postings.append(Posting(
+                list_key=list_key, row_id=job_id, title=title, company=company,
+                location="; ".join(", ".join(b.strip() for b in str(x).split(",")) for x in places if x), salary="", size=None,
+                date=f"{when:%b} {when.day}", work_model=None, apply_url=job_url, posted_at=when,
+                source=f"{company} careers site", description=description,
+            ))
+        if too_old or len(jobs) < EIGHTFOLD_PAGE:
+            break
+    return postings
+
+
 BUILTIN = {"amazon": fetch_amazon, "google": fetch_google, "apple": fetch_apple}
 
 
@@ -456,4 +557,8 @@ def fetch_site(session: requests.Session, spec, now: datetime | None = None, det
         return fetch_ashby(session, spec.ashby, spec.company, spec.key, **kw)
     if spec.oracle:
         return fetch_oracle(session, spec.oracle, spec.company, spec.key, **kw)
+    if spec.smartrecruiters:
+        return fetch_smartrecruiters(session, spec.smartrecruiters, spec.company, spec.key, **kw)
+    if spec.eightfold:
+        return fetch_eightfold(session, spec.eightfold, spec.company, spec.key, **kw)
     return BUILTIN[spec.careers](session, spec.company, spec.key, **kw)

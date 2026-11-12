@@ -429,3 +429,94 @@ def test_sources_line():
              ListSpec("site:a", company="A", greenhouse="a"), ListSpec("site:b", company="B", lever="b")]
     assert _sources(specs) == "intern-list.com, the SimplifyJobs GitHub list and 2 company career sites"
     assert _sources(specs[:1]) == "intern-list.com"
+
+
+class FakeAssistant:
+    """Scores by title: 'great' jobs fit well. Counts what it was asked for."""
+
+    def __init__(self):
+        self.scored, self.drafted = [], []
+
+    def score(self, p):
+        from jobscanner.ai import Fit
+        self.scored.append(p.row_id)
+        return Fit(90 if "great" in p.title else 50, f"why {p.row_id}")
+
+    def draft(self, p):
+        self.drafted.append(p.row_id)
+        return f"COVER LETTER for {p.title}"
+
+
+class DraftBox(list):
+    def __call__(self, subject, text, html, attachments=()):
+        self.append((subject, text, html, list(attachments)))
+
+
+def test_ai_scores_matches_and_attaches_drafts_for_the_best(site, paths):
+    Path(paths[0]).write_text(CONFIG + "ai: {draft_min_score: 75, max_drafts_per_day: 1}\n")
+    site["cs"] = [posting("a", company="NVIDIA", title="great Security Intern A"),
+                  posting("b", company="NVIDIA", title="great Security Intern B"),
+                  posting("c", company="NVIDIA", title="Security Intern C")]
+    helper, outbox = FakeAssistant(), DraftBox()
+    run(*paths, session=object(), sender=outbox, now=NOW, assistant=helper)
+    subject, text, html, attached = outbox[0]
+    assert sorted(helper.scored) == ["a", "b", "c"] and len(helper.drafted) == 1    # one draft a day
+    assert "Fit 90" in html and "Fit 50" in html and "Fit: 90/100. why a" in text
+    assert len(attached) == 1 and attached[0][0].startswith("Draft - NVIDIA - great Security Intern")
+    assert "COVER LETTER for great Security Intern" in attached[0][1]
+    # Later the same day the daily limit is used up; nothing already sent is scored again.
+    site["cs"].append(posting("d", company="NVIDIA", title="great Security Intern D", minutes_ago=1))
+    run(*paths, session=object(), sender=outbox, now=NOW + timedelta(minutes=30), assistant=helper)
+    assert helper.scored[3:] == ["d"] and len(helper.drafted) == 1 and outbox[1][3] == []
+
+
+def test_without_ai_nothing_changes(site, paths):
+    site["cs"] = [posting("a", company="NVIDIA")]
+    outbox = Outbox()
+    go(paths, outbox, assistant=None)
+    assert "Fit" not in outbox[0][2] and "Fit:" not in outbox[0][1]
+
+
+def test_queued_matches_keep_their_score_for_the_digest(site, paths):
+    Path(paths[0]).write_text(CONFIG.replace("locations: [CA]", "locations: [TX]") + "digest_hour: 8\n")
+    site["cs"] = [posting("q", company="Acme", title="great Security Intern", salary="")]   # matches on location only
+    helper, outbox = FakeAssistant(), DraftBox()
+    run(*paths, session=object(), sender=outbox, now=NOW, assistant=helper)
+    assert outbox == []                                             # not urgent: queued
+    morning = datetime(2026, 10, 22, 13, 0, tzinfo=timezone.utc)    # 9 AM Eastern
+    run(*paths, session=object(), sender=outbox, now=morning, assistant=helper)
+    assert "Daily digest" in outbox[0][0] and "Fit 90" in outbox[0][2] and len(outbox[0][3]) == 1
+    assert helper.scored == ["q"]                                   # scored once, when it was found
+    assert json.loads(Path(paths[1]).read_text())["fits"] == {}
+
+
+def test_weekly_summary_counts_the_week_and_lists_what_is_waiting(site, paths, monkeypatch):
+    from jobscanner import tracker
+    Path(paths[0]).write_text(CONFIG + "weekly_summary: {day: sunday, hour: 18}\nfollow_up_after_days: 10\n")
+    site["cs"] = [posting("a", company="NVIDIA", title="Security Intern A"), posting("b", company="NVIDIA", title="Security Intern B")]
+    outbox = Outbox()
+    go(paths, outbox)                                               # Wednesday night ET: the two jobs are emailed
+    sunday = datetime(2026, 10, 25, 23, 0, tzinfo=timezone.utc)     # Sunday 7 PM Eastern
+    marks = tracker.Marks(loaded=True, jobs={"jobright.ai/jobs/info/a": "applied"}, rows=[
+        {"status": "applied", "id": "jobright.ai/jobs/info/a", "company": "NVIDIA", "title": "Security Intern A",
+         "link": "https://jobright.ai/jobs/info/a", "marked": sunday - timedelta(days=1)},
+        {"status": "applied", "id": "old", "company": "Cisco", "title": "Network Intern", "link": "https://c/1",
+         "marked": sunday - timedelta(days=12)},
+        {"status": "interview", "id": "i", "company": "Okta", "title": "IAM Intern", "link": "javascript:alert(1)",
+         "marked": sunday - timedelta(days=2)}])
+    monkeypatch.setattr(tracker, "load", lambda session: marks)
+    go(paths, outbox, now=sunday)
+    subject, text, html = outbox[1]
+    assert subject == "📊 Your week: 2 matches, 1 applied"
+    assert "Applied: 1" in text and "Interviews: 1" in text
+    assert "Security Intern B" in text and "Security Intern A" not in text.split("Still waiting on you:")[1].split("Worth")[0]
+    assert "Cisco: Network Intern (applied 12 days ago)" in text and "javascript:" not in html
+    go(paths, outbox, now=sunday + timedelta(minutes=30))           # once a week, not once a run
+    assert len(outbox) == 2
+
+
+def test_weekly_summary_works_without_the_tracker(site, paths):
+    Path(paths[0]).write_text(CONFIG + "weekly_summary: {day: sunday, hour: 18}\n")
+    outbox = Outbox()
+    go(paths, outbox, now=datetime(2026, 10, 25, 23, 0, tzinfo=timezone.utc))
+    assert outbox[0][0] == "📊 Your week: 0 matches" and "set up the tracker" in outbox[0][2]

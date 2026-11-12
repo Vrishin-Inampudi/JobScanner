@@ -81,3 +81,24 @@ def test_title_words_match_from_the_start_of_a_word():
     assert not spec.wants("Innocent Bystander Intern")          # 'noc' inside a word
     assert not spec.wants("Research Intern - Neural Network Training")
     assert not spec.wants("Network Intern, Powertrain")
+
+
+def test_ai_and_weekly_settings(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("lists: [cs]\nweekly_summary: {day: Sunday, hour: 18}\nai: {draft_min_score: 80, score_model: claude-haiku-5-5}\n")
+    loaded = load_config(cfg)
+    assert loaded.weekly_summary == (6, 18) and loaded.ai.draft_min_score == 80 and loaded.ai.max_drafts_per_day == 3
+    assert load_config(ROOT / "config.yaml").weekly_summary == (6, 18)
+    for bad in ("weekly_summary: {day: someday}", "ai: {draft_min_score: high}", "ai: {modle: x}", "follow_up_after_days: 0"):
+        cfg.write_text(f"lists: [cs]\n{bad}\n")
+        with pytest.raises(ValueError):
+            load_config(cfg)
+
+
+def test_new_site_kinds(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("lists: [cs]\ncompany_sites:\n  sites:\n    - {company: ServiceNow, smartrecruiters: ServiceNow}\n"
+                   "    - {company: Netflix, eightfold: 'https://explore.jobs.netflix.net/careers?domain=netflix.com'}\n")
+    specs = [s for s in load_config(cfg).lists if s.is_site]
+    assert [(s.key, bool(s.smartrecruiters), bool(s.eightfold)) for s in specs] == [
+        ("site:servicenow", True, False), ("site:netflix", False, True)]

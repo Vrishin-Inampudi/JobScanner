@@ -44,6 +44,9 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           TRACKER_URL: ${{ secrets.TRACKER_URL }}       # optional: application tracker (see README)
           TRACKER_TOKEN: ${{ secrets.TRACKER_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}   # optional: also post urgent matches to Discord
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}       # optional: resume fit scores and drafts
+          RESUME_TEXT: ${{ secrets.RESUME_TEXT }}                   # ... your resume as plain text
       - name: Save seen postings
         if: always()      # a list that failed still lets the others' progress be kept
         run: |

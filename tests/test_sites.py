@@ -261,3 +261,38 @@ def test_banks_summer_analyst_counts_as_internship():
     from jobscanner.config import ListSpec
     spec = ListSpec(key="site:citi", title_require=["intern", "co-op", "summer analyst"], title_include=["cyber"])
     assert spec.wants("Technology, Cyber Security, Summer Analyst, Irving")
+
+
+def test_fetch_smartrecruiters():
+    from jobscanner.sites import fetch_smartrecruiters
+    jobs = {"content": [
+        {"id": "744", "name": "Security Engineering Intern ", "releasedDate": "2026-11-01T02:04:04.244Z",
+         "location": {"city": "Kirkland", "region": "Washington", "country": "us"}},
+        {"id": "745", "name": "Security Intern old", "releasedDate": "2026-09-01T00:00:00.000Z", "location": {}},
+        {"id": "746", "name": "Marketing Intern", "releasedDate": "2026-11-01T00:00:00.000Z", "location": {}}]}
+    detail = {"jobAd": {"sections": {"jobDescription": {"text": "<p>Detect threats</p>"}, "qualifications": {"text": "Python"}}}}
+    s = GetSession([Resp(jobs), Resp(detail)])
+    got = fetch_smartrecruiters(s, "ServiceNow", "ServiceNow", "site:servicenow", wants, now=NOW)
+    assert [(p.row_id, p.title, p.location, p.apply_url) for p in got] == [
+        ("744", "Security Engineering Intern", "Kirkland, Washington, United States", "https://jobs.smartrecruiters.com/ServiceNow/744")]
+    assert got[0].description.split() == ["Detect", "threats", "Python"] and s.calls[0][1]["country"] == "us"
+    with pytest.raises(SourceError):
+        fetch_smartrecruiters(GetSession([]), "../x", "X", "k", wants, now=NOW)
+
+
+def test_fetch_eightfold():
+    from jobscanner.sites import eightfold_parts, fetch_eightfold
+    url = "https://explore.jobs.netflix.net/careers?domain=netflix.com"
+    assert eightfold_parts(url) == ("explore.jobs.netflix.net", "netflix.com")
+    for bad in ("http://explore.jobs.netflix.net/careers?domain=netflix.com", "https://explore.jobs.netflix.net/careers"):
+        with pytest.raises(SourceError):
+            eightfold_parts(bad)
+    stamp = int(NOW.timestamp()) - 3600
+    jobs = {"positions": [
+        {"id": 790, "name": "Security Engineer Intern", "t_create": stamp, "locations": ["Los Gatos,California,United States of America"]},
+        {"id": 791, "name": "Security Intern old", "t_create": stamp - 30 * 86400, "location": "Los Gatos,California"}]}
+    s = GetSession([Resp(jobs), Resp({"job_description": "<b>Protect</b> streaming"})])
+    got = fetch_eightfold(s, url, "Netflix", "site:netflix", wants, now=NOW)
+    assert [(p.row_id, p.location, p.apply_url) for p in got] == [
+        ("790", "Los Gatos, California, United States of America", "https://explore.jobs.netflix.net/careers/job/790")]
+    assert got[0].description == "Protect streaming" and s.calls[0][1]["domain"] == "netflix.com"

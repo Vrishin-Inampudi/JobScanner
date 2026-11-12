@@ -68,6 +68,8 @@ company_sites:
     - {company: T-Mobile, workday: "https://tmobile.wd1.myworkdayjobs.com/External"}
     - {company: Verizon, workday: "https://verizon.wd12.myworkdayjobs.com/verizon-careers"}
     - {company: Comcast, workday: "https://comcast.wd115.myworkdayjobs.com/Comcast_Careers"}
+    - {company: AT&T, workday: "https://att.wd1.myworkdayjobs.com/ATTGeneral"}
+    - {company: Motorola Solutions, workday: "https://motorolasolutions.wd5.myworkdayjobs.com/Careers"}
     # Big tech
     - {company: Apple, careers: apple}
     - {company: NVIDIA, workday: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"}
@@ -80,6 +82,9 @@ company_sites:
     - {company: Workday, workday: "https://workday.wd5.myworkdayjobs.com/Workday_Early_Career"}
     - {company: Snap, workday: "https://snapchat.wd1.myworkdayjobs.com/snap"}
     - {company: PayPal, workday: "https://paypal.wd1.myworkdayjobs.com/jobs"}
+    - {company: ServiceNow, smartrecruiters: ServiceNow}
+    - {company: Netflix, eightfold: "https://explore.jobs.netflix.net/careers?domain=netflix.com"}
+    - {company: Oracle, oracle: "https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/jobsearch"}
     - {company: Zoom, workday: "https://zoom.wd5.myworkdayjobs.com/Zoom"}
     - {company: Autodesk, workday: "https://autodesk.wd1.myworkdayjobs.com/Ext"}
     - {company: Block, greenhouse: block}
@@ -113,8 +118,10 @@ company_sites:
     - {company: Parsons, workday: "https://parsons.wd5.myworkdayjobs.com/Search"}
     - {company: Blue Origin, workday: "https://blueorigin.wd5.myworkdayjobs.com/BlueOrigin"}
     - {company: Draper, workday: "https://draper.wd5.myworkdayjobs.com/Draper_Careers"}
+    - {company: Lawrence Livermore National Laboratory, smartrecruiters: LLNL}
     # Banks and consulting (big cyber programs)
     - {company: Citi, workday: "https://citi.wd5.myworkdayjobs.com/2"}
+    - {company: JPMorgan Chase, oracle: "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001"}
     - {company: Wells Fargo, workday: "https://wf.wd1.myworkdayjobs.com/WellsFargoJobs"}
     - {company: Morgan Stanley, workday: "https://ms.wd5.myworkdayjobs.com/External"}
     - {company: Fidelity Investments, workday: "https://fmr.wd1.myworkdayjobs.com/targeted"}
@@ -148,9 +155,9 @@ company_sites:
     - {company: Roblox, greenhouse: roblox}
     - {company: Figma, greenhouse: figma}
     # Not checkable directly (their job sites block automated requests, only load in a
-    # browser, or use a system without a public feed): Tesla, Meta, Microsoft, Netflix, Uber,
-    # Lockheed Martin, L3Harris, AMD, Qualcomm, Dell, ServiceNow, Intuit, JPMorgan Chase,
-    # Goldman Sachs, the national labs and others. They're top companies below, so their jobs
+    # browser, or use a system without a public feed): Tesla, Meta, Microsoft, Uber,
+    # Lockheed Martin, L3Harris, AMD, Qualcomm, Dell, Intuit, Goldman Sachs, most national
+    # labs and others. They're top companies below, so their jobs
     # on intern-list.com and the GitHub list still get the ★.
 # Skip jobs you can't take. These apply before the criteria below.
 eligibility:
@@ -171,6 +178,22 @@ check_every_minutes: 30
 # min_hourly_pay are emailed right away; the rest wait for this one morning email.
 # Remove the line to get everything right away.
 digest_hour: 8
+
+# One email a week (Eastern time): how many jobs matched, what you applied to, matches
+# still waiting on you, and applications worth a follow-up. Leave it out to turn it off.
+weekly_summary: {day: sunday, hour: 18}
+follow_up_after_days: 10   # applications this old with no news are listed in the summary
+
+# Resume fit scores and drafts, written by Claude. This only runs when the ANTHROPIC_API_KEY
+# and RESUME_TEXT secrets are set (see the README). Each new match gets a 0-100 fit score
+# and a one-line reason; the best fits also get a cover-letter draft attached to the email.
+# Scores are only shown: they never change which jobs are sent.
+ai:
+  score_model: claude-haiku-5-5   # scores every match; fast and very cheap
+  draft_model: claude-opus-5-5    # writes drafts for the best fits only
+  draft_min_score: 75             # write a draft when the fit is at least this
+  max_drafts_per_day: 3
+  max_scored_per_run: 30
 
 # Send a short "Hi, nothing has been posted!" email after this many hours without any
 # email. Remove the line to turn it off.

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
+from .ai import draft_filename
 from .filters import MAX_PLACES_SHOWN, Match, pretty_location, pretty_month
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
@@ -59,6 +60,8 @@ def _tags(m: Match) -> list[tuple[str, bool]]:
     tags = []
     if m.priority:
         tags.append(("★ Top company", True))
+    if m.fit is not None:
+        tags.append((f"Fit {m.fit}", True))
     if m.hourly is not None:
         tags.append((_pay(m), True))
     if m.area:
@@ -110,7 +113,9 @@ def _text(matches: list[Match], now: datetime, links=None) -> str:
         track = (links or (lambda _: None))(p)
         mark = f"Mark applied: {track['applied']}\nNot interested: {track['skip']}\n" if track else ""
         skills = f"Skills: {_skills_text(m)}\n" if _skills_text(m) else ""
-        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\n{skills}Apply: {p.apply_url}\n{mark}")
+        fit = f"Fit: {m.fit}/100. {m.fit_why}\n" if m.fit is not None else ""
+        draft = f"Draft attached: {draft_filename(p)}\n" if m.draft else ""
+        parts.append(f"{p.company.upper()}\n{p.title}\n{facts}\nWhy: {why}\n{fit}{skills}Apply: {p.apply_url}\n{mark}{draft}")
     return "\n".join(parts)
 
 
@@ -148,12 +153,26 @@ def _event(m: Match, now: datetime, links=None) -> str:
       <div style="font:600 17px/1.35 {SANS};color:{TEXT};margin:3px 0 5px">
         <a href="{e(p.apply_url)}" style="color:{TEXT};text-decoration:none">{e(p.title)}</a></div>
       <div style="font:400 13px/1.55 {SANS};color:{MUTED};margin-bottom:10px">{facts}</div>
-      <div>{tags}</div>{_skill_chips(m)}
+      <div>{tags}</div>{_skill_chips(m)}{_fit_line(m)}
       <a href="{e(p.apply_url)}" style="display:inline-block;margin-top:4px;padding:7px 14px;border-radius:7px;
          background:#2A2A2A;border:1px solid #3A3A3A;color:{TEXT};font:600 13px/1 {SANS};text-decoration:none">Apply &rarr;</a>{_track(p, links)}
     </td></tr>
   </table>
 </td></tr>"""
+
+
+def _fit_line(m: Match) -> str:
+    """Why the resume fits (or doesn't), and a pointer to the attached draft."""
+    lines = [m.fit_why] if m.fit_why else []
+    if m.draft:
+        lines.append(f"Draft cover letter attached: {draft_filename(m.posting)}")
+    return "".join(f'<div style="font:400 13px/1.5 {SANS};color:{MUTED};margin:0 0 6px">{html.escape(x)}</div>' for x in lines)
+
+
+def attachments(matches: list[Match]) -> list[tuple[str, str]]:
+    """(filename, text) for each match that has a draft."""
+    return [(draft_filename(m.posting), f"{m.posting.company}: {m.posting.title}\n{m.posting.apply_url}\n\n{m.draft}\n")
+            for m in matches if m.draft]
 
 
 def _interval(minutes: int) -> str:
@@ -188,11 +207,13 @@ def _notes(notes) -> str:
 
 
 def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool, check_every: int,
-          notes=(), sources: str = "") -> str:
+          notes=(), sources: str = "", dashboard: str = "") -> str:
     """The shared dark shell: header with today badge, headline, body rows, footer."""
     local = now.astimezone(DISPLAY_TZ)
     key = (f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}"
            f"{_legend_dot(HAVE['text'], '✓ Skill you have')}{_legend_dot(LACK['text'], '✗ Skill you don’t')}") if legend else ""
+    board = (f'<a href="{html.escape(dashboard, quote=True)}" style="color:{OTHER["tag_text"]};text-decoration:none">'
+             f'Open your dashboard &rarr;</a> &middot; ') if dashboard else ""
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>JobScanner</title></head>
@@ -217,7 +238,7 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
     {body}
     <tr><td style="padding:14px 2px 0;border-top:1px solid {LINE};font:400 12px/1.6 {SANS};color:{MUTED}">
       {_notes(notes)}{key}
-      <div style="margin-top:8px;color:{FAINT}">Checked every {_interval(check_every).removeprefix("an ")} from {html.escape(sources or "intern-list.com")} &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
+      <div style="margin-top:8px;color:{FAINT}">{board}Checked every {_interval(check_every).removeprefix("an ")} from {html.escape(sources or "intern-list.com")} &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
     </td></tr>
   </table>
 </td></tr>
@@ -226,7 +247,7 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
 
 
 def _html(matches: list[Match], now: datetime, check_every: int, links=None, digest: bool = False,
-          notes=(), sources: str = "") -> str:
+          notes=(), sources: str = "", dashboard: str = "") -> str:
     noun = "internship" if len(matches) == 1 else "internships"
     return _page(
         now,
@@ -239,11 +260,12 @@ def _html(matches: list[Match], now: datetime, check_every: int, links=None, dig
         check_every=check_every,
         notes=notes,
         sources=sources,
+        dashboard=dashboard,
     )
 
 
 def render(matches: list[Match], now: datetime | None = None, check_every: int = 60, links=None,
-           digest: bool = False, notes=(), sources: str = "") -> tuple[str, str, str]:
+           digest: bool = False, notes=(), sources: str = "", dashboard: str = "") -> tuple[str, str, str]:
     """The job email. ``links(posting)`` gives tracker links; ``digest`` words it as the daily digest.
 
     ``notes`` are warnings shown above the footer; ``sources`` names what was checked.
@@ -253,14 +275,14 @@ def render(matches: list[Match], now: datetime | None = None, check_every: int =
     if digest:
         subject = "☀️ Daily digest: " + subject.removeprefix("🎯 ").replace(" new ", " more ", 1)
     text = _text(matches, now, links) + "".join(f"\nNote: {n}" for n in notes)
-    return subject, text, _html(matches, now, check_every, links, digest, notes, sources)
+    return subject, text, _html(matches, now, check_every, links, digest, notes, sources, dashboard)
 
 
 EMPTY_HEADLINE = "Hi, nothing has been posted!"
 
 
 def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | None = None,
-                 check_every: int = 60, notes=(), sources: str = "") -> tuple[str, str, str]:
+                 check_every: int = 60, notes=(), sources: str = "", dashboard: str = "") -> tuple[str, str, str]:
     """The 'nothing has been posted' email, in the same template."""
     now = now or datetime.now(timezone.utc)
     back = f"Check back in {_interval(check_every)}."
@@ -279,10 +301,70 @@ def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | N
     subject = f"Nothing new in the last {hours}h · {_clock(now)} ET"
     text = f"{EMPTY_HEADLINE}\n{back}\n\n{detail}\n" + "".join(f"Note: {n}\n" for n in notes)
     return subject, text, _page(now, f"{EMPTY_HEADLINE} {back}", EMPTY_HEADLINE, back, slot,
-                                legend=False, check_every=check_every, notes=notes, sources=sources)
+                                legend=False, check_every=check_every, notes=notes, sources=sources, dashboard=dashboard)
 
 
-def send(subject: str, text: str, html_body: str, env=os.environ) -> None:
+def _tile(value, label: str) -> str:
+    return (f'<td width="25%" style="padding:0 6px 0 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'bgcolor="{PANEL}" style="background:{PANEL};border-radius:8px"><tr><td style="padding:12px 10px">'
+            f'<div style="font:700 24px/1.1 {SANS};color:{TEXT}">{html.escape(str(value))}</div>'
+            f'<div style="font:400 12px/1.4 {SANS};color:{MUTED};margin-top:3px">{html.escape(label)}</div></td></tr></table></td>')
+
+
+def _job_list(heading: str, jobs: list[dict], note) -> str:
+    """A titled list of linked jobs; ``note(job)`` is the small text after each."""
+    if not jobs:
+        return ""
+    rows = "".join(
+        f'<div style="padding:8px 0;border-top:1px solid {LINE};font:400 14px/1.45 {SANS};color:{TEXT};word-break:break-word">'
+        f'<a href="{html.escape(j["url"], quote=True)}" style="color:{TEXT};text-decoration:none">'
+        f'<span style="font-weight:600">{html.escape(j["company"])}</span> &middot; {html.escape(j["title"])}</a>'
+        f'<span style="color:{MUTED};font-size:12px"> &nbsp;{html.escape(note(j))}</span></div>' for j in jobs)
+    return (f'<tr><td style="padding:14px 2px 6px"><div style="font:600 13px/1.4 {SANS};color:{MUTED};'
+            f'margin-bottom:4px">{html.escape(heading)}</div>{rows}</td></tr>')
+
+
+MAX_LISTED = 10
+
+
+def render_weekly(found: int, waiting: list[dict], follow_up: list[dict], counts: dict[str, int] | None,
+                  now: datetime | None = None, check_every: int = 60, notes=(), sources: str = "",
+                  dashboard: str = "", follow_up_days: int = 10) -> tuple[str, str, str]:
+    """The weekly summary: what matched, what you did about it, and what's still waiting.
+
+    ``waiting`` and ``follow_up`` are jobs as {company, title, url, fit / days}; ``counts`` has your
+    applied / interview / offer / rejected numbers for the week, or is None without the tracker.
+    """
+    now = now or datetime.now(timezone.utc)
+    counts = counts or {}
+    stat = lambda n, one, many: f"{n} {one if n == 1 else many}"
+    headline = f"{stat(found, 'match', 'matches')} this week"
+    done = f", {counts['applied']} applied" if "applied" in counts else ""
+    subject = f"📊 Your week: {stat(found, 'match', 'matches')}{done}"
+    tiles = [_tile(found, "Matches found")]
+    tiles += [_tile(counts[k], label) for k, label in (("applied", "Applied"), ("interview", "Interviews"), ("offer", "Offers"))
+              if k in counts]
+    fit = lambda j: f"Fit {j['fit']}" if j.get("fit") is not None else ""
+    late = lambda j: f"applied {j['days']} days ago"
+    more = f" (showing the top {MAX_LISTED})" if len(waiting) > MAX_LISTED else ""
+    body = (f'<tr><td style="padding:0 0 6px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            f'{"".join(tiles)}</tr></table></td></tr>'
+            + _job_list(f"Still waiting on you: {len(waiting)}{more}", waiting[:MAX_LISTED], fit)
+            + _job_list(f"Worth a follow-up: applied {follow_up_days}+ days ago, no news", follow_up[:MAX_LISTED], late))
+    sub = "The last 7 days" + ("" if counts else " · set up the tracker to see what you've applied to")
+    lines = [headline, sub, ""]
+    lines += [f"{label}: {counts[k]}" for k, label in (("applied", "Applied"), ("interview", "Interviews"), ("offer", "Offers"),
+                                                       ("rejected", "Rejected")) if k in counts]
+    for heading, jobs, note in (("Still waiting on you", waiting[:MAX_LISTED], fit), ("Worth a follow-up", follow_up[:MAX_LISTED], late)):
+        if jobs:
+            lines += ["", f"{heading}:"] + [f"- {j['company']}: {j['title']} ({note(j)}) {j['url']}".replace(" ()", "") for j in jobs]
+    lines += [f"\nDashboard: {dashboard}"] if dashboard else []
+    text = "\n".join(lines) + "\n" + "".join(f"Note: {n}\n" for n in notes)
+    return subject, text, _page(now, headline, headline, sub, body, legend=False, check_every=check_every, notes=notes,
+                                sources=sources, dashboard=dashboard)
+
+
+def send(subject: str, text: str, html_body: str, attachments=(), env=os.environ) -> None:
     sender, password = env.get("GMAIL_ADDRESS"), env.get("GMAIL_APP_PASSWORD")
     if not sender or not password:
         raise EmailConfigError("set GMAIL_ADDRESS and GMAIL_APP_PASSWORD (see README) to send email")
@@ -292,6 +374,8 @@ def send(subject: str, text: str, html_body: str, env=os.environ) -> None:
     msg["Subject"], msg["From"], msg["To"] = subject, sender, ", ".join(recipients)
     msg.set_content(text)
     msg.add_alternative(html_body, subtype="html")
+    for filename, body in attachments:
+        msg.add_attachment(body.encode("utf-8"), maintype="text", subtype="plain", filename=filename)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60) as smtp:
         smtp.starttls()
         smtp.login(sender, password)

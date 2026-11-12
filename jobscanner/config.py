@@ -8,11 +8,12 @@ from pathlib import Path
 
 import yaml
 
+from .ai import AIConfig
 from .filters import Criteria, parse_month
 from .skills import Skills, skill
 
 BUILTIN_CAREERS = ("amazon", "google", "apple")  # sites.BUILTIN
-SITE_KINDS = ("workday", "greenhouse", "lever", "ashby", "oracle", "careers")
+SITE_KINDS = ("workday", "greenhouse", "lever", "ashby", "oracle", "smartrecruiters", "eightfold", "careers")
 
 
 @dataclass
@@ -28,11 +29,13 @@ class ListSpec:
     lever: str | None = None      # ... or its Lever board name
     ashby: str | None = None      # ... or its Ashby board name
     oracle: str | None = None     # ... or its Oracle Recruiting careers URL
+    smartrecruiters: str | None = None  # ... or its SmartRecruiters company name
+    eightfold: str | None = None  # ... or its Eightfold careers URL (https://<site>/careers?domain=<company.com>)
     careers: str | None = None    # ... or a built-in site: amazon, google, apple
 
     @property
     def is_site(self) -> bool:
-        return bool(self.workday or self.greenhouse or self.lever or self.ashby or self.oracle or self.careers)
+        return any(getattr(self, kind) for kind in SITE_KINDS)
 
     def wants(self, title: str) -> bool:
         t = title.lower()
@@ -57,6 +60,9 @@ class Config:
     quiet_hours: tuple[int, int] | None = None  # [start, end) hours, Eastern time
     check_every_minutes: int = 60                # how often the scheduler runs it; used in the email copy
     digest_hour: int | None = None               # ET hour for the daily digest of non-urgent matches
+    ai: AIConfig = field(default_factory=AIConfig)  # resume fit scores and drafts (only with the AI secrets set)
+    weekly_summary: tuple[int, int] | None = None  # (weekday 0=Mon, ET hour) for the weekly summary email
+    follow_up_after_days: int = 10               # applications this old with no news are listed in the summary
 
 
 def load_config(path: str | Path) -> Config:
@@ -108,9 +114,38 @@ def load_config(path: str | Path) -> Config:
     digest = raw.get("digest_hour")
     if digest is not None and not (isinstance(digest, int) and 0 <= digest <= 23):
         raise ValueError(f"{path}: 'digest_hour' must be an hour 0-23, got {digest!r}")
+    follow_up = raw.get("follow_up_after_days", 10)
+    if not isinstance(follow_up, int) or follow_up <= 0:
+        raise ValueError(f"{path}: 'follow_up_after_days' must be a positive whole number, got {follow_up!r}")
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
-                  check_every_minutes=check_every, digest_hour=digest)
+                  check_every_minutes=check_every, digest_hour=digest, ai=_ai(path, raw.get("ai") or {}),
+                  weekly_summary=_weekly(path, raw.get("weekly_summary")), follow_up_after_days=follow_up)
+
+
+DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def _weekly(path, section) -> tuple[int, int] | None:
+    """``weekly_summary: {day: sunday, hour: 18}`` -> (6, 18)."""
+    if section is None:
+        return None
+    day, hour = str((section or {}).get("day", "")).lower(), (section or {}).get("hour", 18)
+    if not isinstance(section, dict) or day not in DAYS or not (isinstance(hour, int) and 0 <= hour <= 23):
+        raise ValueError(f"{path}: 'weekly_summary' must look like {{day: sunday, hour: 18}}, got {section!r}")
+    return DAYS.index(day), hour
+
+
+def _ai(path, section: dict) -> AIConfig:
+    known = AIConfig.__dataclass_fields__
+    extra = sorted(set(section) - set(known))
+    if extra:
+        raise ValueError(f"{path}: ai: unknown setting {extra[0]!r} (known: {', '.join(known)})")
+    for name, value in section.items():
+        wanted = str if name.endswith("_model") else int
+        if not isinstance(value, wanted) or isinstance(value, bool) or (wanted is int and value < 0):
+            raise ValueError(f"{path}: ai.{name} must be a {'model name' if wanted is str else 'whole number'}, got {value!r}")
+    return AIConfig(**section)
 
 
 def _skills(path, section: dict) -> Skills:

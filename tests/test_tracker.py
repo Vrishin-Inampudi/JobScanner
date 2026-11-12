@@ -55,3 +55,48 @@ def test_load_never_fails_the_run():
         def get(self, *a, **k):
             raise ConnectionError("down")
     assert load(S(), ENV).jobs == {} and load(None, {}).jobs == {}
+
+
+def test_rows_keep_stage_and_date_and_old_scripts_still_load():
+    rows = [{"status": "Interview", "id": "x/1", "role": "acme|a", "company": "Acme", "title": "A", "link": "https://x/1",
+             "marked": "2026-11-01T15:00:00.000Z"},
+            {"status": "Applied", "id": "x/2", "role": "acme|b"}]   # an older Code.gs: no date or details
+
+    class S:
+        def get(self, url, params, timeout):
+            return Resp({"rows": rows})
+    marks = load(S(), ENV)
+    assert marks.loaded and [r["title"] for r in marks.with_status(tracker.INTERVIEW)] == ["A"]
+    assert marks.with_status(tracker.INTERVIEW)[0]["marked"].isoformat() == "2026-11-01T15:00:00+00:00"
+    assert marks.with_status(tracker.APPLIED)[0]["marked"] is None
+    assert marks.hides(posting(apply_url="https://x/1"))   # any stage means you've dealt with it
+
+
+def test_push_sends_matches_to_the_dashboard_and_never_fails_the_run():
+    from datetime import datetime, timezone
+
+    from jobscanner.filters import evaluate
+
+    from .test_filters import CRIT
+    m = evaluate(posting(company="NVIDIA", salary="$40 /hr", apply_url="https://x/9"), CRIT)
+    m.fit, m.fit_why, m.draft = 88, "Good.", "COVER LETTER..."
+    now = datetime(2026, 11, 2, tzinfo=timezone.utc)
+
+    class S:
+        sent = []
+
+        def post(self, url, json, timeout):
+            self.sent.append((url, json))
+            return Resp({"ok": True})
+    tracker.push(S(), [m], now, ENV)
+    url, body = S.sent[0]
+    assert url == ENV["TRACKER_URL"] and body["t"] == "secret" and body["a"] == "matches"
+    row = body["rows"][0]
+    assert (row["id"], row["fit"], row["pay"], row["top"], row["draft"]) == ("x/9", 88, 40, True, "COVER LETTER...")
+    assert tracker.dashboard_url(ENV) == ENV["TRACKER_URL"] + "?t=secret&a=dashboard" and tracker.dashboard_url({}) is None
+
+    class Down:
+        def post(self, *a, **k):
+            raise ConnectionError("down")
+    tracker.push(Down(), [m], now, ENV)     # logged, not raised
+    tracker.push(None, [m], now, {})        # not set up: nothing to do

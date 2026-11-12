@@ -419,6 +419,9 @@ class Match:
     flags: list[str] = field(default_factory=list)
     have: list[str] = field(default_factory=list)  # skills it mentions that you have
     lack: list[str] = field(default_factory=list)  # ... and that you don't
+    fit: int | None = None   # 0-100 fit against your resume, when AI scoring is set up
+    fit_why: str = ""        # one line on why
+    draft: str = ""          # cover letter and resume tweaks, for the best fits
 
 
 def _no_city(part: str) -> bool:
