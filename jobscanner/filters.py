@@ -127,15 +127,47 @@ FOREIGN = re.compile(r"\b(" + "|".join([
 _US = re.compile(r"\b(united states|usa|u\.s\.a?\.?|us)\b", re.I)
 
 
+# Places that name no city or country at all ("Remote", "Hybrid", "Multiple Locations").
+_GENERIC = re.compile(
+    r"(remote|hybrid|on-?site|in-?office|flexible|anywhere|various|tbd|n/?a|multi(ple)?\s*locations?)"
+    r"(\s*(work|position|role|eligible|first|ok))?", re.I)
+# Big US cities postings sometimes name without a state ("Greater Indianapolis").
+_US_CITIES = {c.lower() for _, cs in METROS.values() for c in cs} | {
+    c.lower() for cs in DC_SUBURBS.values() for c in cs} | {
+    "atlanta", "baltimore", "charlotte", "cincinnati", "cleveland", "columbus", "dallas", "denver",
+    "detroit", "fort worth", "houston", "indianapolis", "jacksonville", "kansas city", "las vegas",
+    "miami", "milwaukee", "minneapolis", "nashville", "new orleans", "oklahoma city", "omaha",
+    "orlando", "philadelphia", "phoenix", "pittsburgh", "portland", "raleigh", "durham",
+    "sacramento", "salt lake city", "san antonio", "st. louis", "saint louis", "tampa", "tucson",
+}
+# US territories: postings give them as a state ("San Juan, PR").
+_TERRITORIES = {"PR": "Puerto Rico", "GU": "Guam", "VI": "U.S. Virgin Islands"}
+_STATE_NAME = re.compile(r"\b(" + "|".join(map(re.escape, [*STATES.values(), *_TERRITORIES.values()])) + r")\b", re.I)
+
+
+def _in_us(part: str) -> bool:
+    """One place is in the US: says so, gives a US state, or is a known US city."""
+    if _US.search(part) or _STATE_NAME.search(part):
+        return True
+    if any(st for _, st in _places(part)) or part.split(",")[-1].strip().upper() in _TERRITORIES:
+        return True
+    if re.match(r"([A-Z]{2})-", part) and part[:2] in STATES:    # 'MA-TEWKSBURY-TB1 ~ ...'
+        return True
+    name = re.sub(r"^(remote|hybrid|on-?site)\s*[-–:(]\s*", "", part.strip().lower()).rstrip(") ")
+    name = re.sub(r"^greater\s+|\s+(metro(politan)?\s+)?area$", "", name)
+    return name in _US_CITIES or name in _SHORT_PLACES or name in _STATE_CODES or name.upper() in STATES
+
+
 def outside_us(location: str) -> bool:
-    """True only when every listed place names another country: unknown places count as US."""
+    """True unless the posting is in an American city (or names no place at all, like 'Remote').
+
+    A place must show it's in the US: 'United States', a state ('Toronto, ON' is not), or a
+    known US city. Places that name a city without a US state ('London', 'Bangalore') don't count.
+    """
     parts = [x.strip() for x in re.split(r"[;\n]", location or "") if x.strip()]
-    if not parts:
+    if any(_in_us(part) for part in parts):
         return False
-    for part in parts:
-        if _US.search(part) or _places(part) and any(st for _, st in _places(part)) or not FOREIGN.search(part):
-            return False
-    return True
+    return not all(_GENERIC.fullmatch(part) for part in parts)
 
 
 def _metro_cities(name: str) -> set[tuple[str, str]]:

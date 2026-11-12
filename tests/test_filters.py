@@ -209,6 +209,26 @@ from jobscanner.filters import outside_us
     ("Hybrid", False),
     ("", False),
     ("Bangalore, India; Austin, TX", False),
+    # Only American cities: a city with no US state or country counts as abroad.
+    ("London", True),
+    ("Toronto, ON", True),
+    ("Bengaluru, Karnataka", True),
+    ("Remote - Canada", True),
+    ("Paris; Berlin", True),
+    ("Remote", False),
+    ("Multiple Locations", False),
+    ("Paris, TX", False),
+    ("Seattle", False),
+    ("NYC", False),
+    ("Texas", False),
+    ("London; Arlington", False),
+    ("Hybrid - Austin", False),
+    ("Remote (Seattle)", False),
+    ("Greater Birmingham, Alabama Area", False),
+    ("Greater Indianapolis", False),
+    ("MA-TEWKSBURY-TB1 ~ 50 Apple Hill Dr ~ ASSABET BLDG", False),
+    ("San Juan, PR", False),
+    ("Bucharest", True),
 ])
 def test_outside_us(loc, expected):
     assert outside_us(loc) is expected

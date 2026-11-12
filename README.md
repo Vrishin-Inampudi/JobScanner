@@ -145,8 +145,11 @@ criteria:
   Microsoft aren't supported, because their job search only works in a browser. The section's
   `title_require`, `title_include` and `title_exclude` apply to every site. The first
   check of a new site only records what's already posted, and after that you get each
-  new job. Every company listed here counts as a priority company, and jobs located only
-  outside the US are skipped.
+  new job. Every company listed here counts as a priority company.
+- **US only**: every source is limited to American cities. A job is kept only if at least
+  one of its places is clearly in the US (it says "United States", gives a US state or
+  territory, or names a known US city), or if it names no place at all ("Remote",
+  "Multiple Locations"). A bare foreign city like "London" or "Toronto, ON" is skipped.
 - **`eligibility`**: hard filters, applied before `criteria`. `graduation: 2028-05` skips
   roles aimed at other graduating classes, and `skip_phd_only: true` skips PhD-only
   roles. Each email card also shows the start term and target grad class when the
