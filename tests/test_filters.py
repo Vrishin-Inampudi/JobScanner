@@ -255,3 +255,79 @@ def test_skills_are_highlighted_not_filtered():
     assert "Skills: ✓ C++, Linux · ✗ Java" in text
     assert "✓ C++" in html and "✗ Java" in html
     assert evaluate(posting(company="NVIDIA", description="Java only"), crit) is not None  # still sent
+
+
+from jobscanner.filters import anywhere, grad_level, pay_in_text, pretty_location
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("The pay range for this role is $32.00 - $35.00 per hour.", 35),
+    ("The proposed salary range for this position is: $45,900 - $91,900", round(91900 / 2080, 2)),
+    ("Hourly rate: $28-$41", 41),
+    ("Base salary of $120k annually", round(120000 / 2080, 2)),
+    ("Interns earn $8,500 per month", round(8500 * 12 / 2080, 2)),
+    ("We raised $2 billion and serve 500 customers.", None),
+    ("$5,000 relocation bonus for eligible interns", None),
+    ("You'll receive a housing stipend of $3,000 per month", None),
+    ("Compensation: $31/hr. Plus a $1,000 sign-on bonus", 31),
+    ("Our customers saved $40 on average", None),
+    ("Pay: $900,000 per year", None),            # not an intern's pay
+    ("", None),
+])
+def test_pay_in_text(text, expected):
+    assert pay_in_text(text) == expected
+
+
+def test_pay_comes_from_the_description_when_no_salary_is_listed():
+    p = posting(salary="", company="CrowdStrike", location="Remote", description="Pay range: $40 - $50 per hour")
+    assert evaluate(p, CRIT).hourly == 50
+    listed = posting(salary="$45-$60 /hr", description="Pay range: $10 - $20 per hour")
+    assert evaluate(listed, CRIT).hourly == 60   # the listed salary wins
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("2027 Defensive Cyber Operations Grad Intern", True),
+    ("Anti-Cheat Engineering Intern (Masters/PhD) - Summer 2027", True),
+    ("MBA Intern, Summer 2027", True),
+    ("Security Research Intern, MS", True),
+    ("Graduate Student Intern - Network Security", True),
+    ("Security Intern (Bachelor's/Master's)", False),
+    ("Undergraduate Cybersecurity Intern", False),
+    ("Cyber Intern - BS/MS", False),
+    ("Master Data Management Intern", False),
+    ("Security Engineer Intern", False),
+    ("Intern - MS Office Automation", False),
+])
+def test_grad_level(title, expected):
+    assert grad_level(posting(title=title)) is expected
+
+
+def test_grad_level_roles_are_skipped_only_when_asked():
+    p = posting(title="Cyber Grad Intern", company="CrowdStrike", location="San Jose, CA")
+    assert evaluate(p, CRIT) is not None
+    assert evaluate(p, Criteria(priority_companies=["CrowdStrike"], skip_grad_level=True)) is None
+
+
+@pytest.mark.parametrize("loc,expected", [
+    ("", True), ("United States", True), ("Hybrid", True), ("Texas", True), ("Remote - Austin", True),
+    ("Multiple Locations", True),
+    ("Tewksbury, MA", False),
+    ("Seattle", False),
+    ("MA-TEWKSBURY-TB1 ~ 50 Apple Hill Dr ~ ASSABET BLDG", False),   # unreadable, but still one specific place
+])
+def test_anywhere(loc, expected):
+    assert anywhere(posting(location=loc, work_model=None)) is expected
+
+
+def test_bare_city_counts_as_its_metro():
+    assert location_match("Seattle", METRO_PREFS) == "Seattle"
+    assert location_match("Greater Boston Area", METRO_PREFS) == "Boston"
+    assert location_match("Newark", METRO_PREFS) is None   # could be New Jersey
+
+
+def test_pretty_location_shortens():
+    long = ("San Jose, California, United States of America; Chicago, Illinois, United States of America; "
+            "Scottsdale, Arizona, United States of America; Austin, Texas, United States of America")
+    assert pretty_location(long) == "San Jose, CA / Chicago, IL / Scottsdale, AZ / Austin, TX"
+    assert pretty_location(long, 2) == "San Jose, CA / Chicago, IL +2 more"
+    assert pretty_location("Sterling, VA, US") == "Sterling, VA"

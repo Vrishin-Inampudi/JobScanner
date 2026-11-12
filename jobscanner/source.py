@@ -87,8 +87,13 @@ class Posting:
         fingerprint = "|".join(" ".join(x.lower().split()) for x in (self.company, self.title))
         if not self.apply_url:
             return (fingerprint,)
-        u = urlsplit(self.apply_url)
-        return (f"{u.netloc.lower()}{u.path.rstrip('/')}", fingerprint)
+        return (url_key(self.apply_url), fingerprint)
+
+
+def url_key(url: str) -> str:
+    """A job link as stored in state: host and path, without query or trailing slash."""
+    u = urlsplit(url)
+    return f"{u.netloc.lower()}{u.path.rstrip('/')}"
 
 
 def new_session() -> requests.Session:

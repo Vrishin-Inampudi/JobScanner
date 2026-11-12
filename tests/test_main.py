@@ -31,7 +31,8 @@ criteria:
 def posting(row_id, minutes_ago=10, **kw):
     kw.setdefault("apply_url", f"https://jobright.ai/jobs/info/{row_id}")
     kw.setdefault("title", f"Security Intern {row_id}")
-    return _posting(row_id=row_id, posted_at=NOW - timedelta(minutes=minutes_ago), **kw)
+    kw.setdefault("posted_at", NOW - timedelta(minutes=minutes_ago))
+    return _posting(row_id=row_id, **kw)
 
 
 @pytest.fixture
@@ -193,7 +194,12 @@ company_sites:
     jobs = [_posting(list_key="site:cloudflare", row_id="old", company="Cloudflare", title="Security Intern A",
                      location="San Francisco, CA", apply_url="https://boards.greenhouse.io/cf/jobs/old",
                      source="Cloudflare careers site")]
-    monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", lambda s, board, company, key, wants, now=None: list(jobs))
+    asked = []   # which jobs' own pages would be read, per run
+
+    def fake(s, board, company, key, wants, now=None, details=None):
+        asked.append([p.row_id for p in jobs if details(p.apply_url)])
+        return list(jobs)
+    monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", fake)
     outbox = Outbox()
     go(paths, outbox)
     assert outbox == []                                        # first check: just records what's there
@@ -202,7 +208,8 @@ company_sites:
                          source="Cloudflare careers site"))
     go(paths, outbox, now=NOW + timedelta(minutes=30))
     assert len(outbox) == 1 and "cf/jobs/new" in outbox[0][1] and "cf/jobs/old" not in outbox[0][1]
-    assert "via Cloudflare careers site" in outbox[0][1]
+    assert "via company site" in outbox[0][1]
+    assert asked == [[], ["new"]]   # job pages are only read for jobs that could be emailed
 
 
 def test_only_title_matched_jobs_are_remembered(site, paths):
@@ -279,6 +286,16 @@ company_sites:
     site["cs"] = [posting("nv", company="NVIDIA", minutes_ago=5)]
     outbox = Outbox()
     assert go(paths, outbox) == 0 and len(outbox) == 1  # a site being down is a warning, not a failed run
+    assert "hasn't loaded" not in outbox[0][1]          # a brief outage isn't worth mentioning
+    # Still down a day later: the next email says so, until the site loads again.
+    later = NOW + timedelta(hours=25)
+    site["cs"] = [posting("nv2", company="NVIDIA", title="Security Intern Two", posted_at=later - timedelta(minutes=5))]
+    go(paths, outbox, now=later)
+    assert "Cloudflare's career site hasn't loaded since Oct 21" in outbox[1][1]
+    assert "Cloudflare&#x27;s career site hasn&#x27;t loaded" in outbox[1][2]
+    monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", lambda *a, **k: [])
+    go(paths, outbox, now=later + timedelta(minutes=30))
+    assert json.loads(Path(paths[1]).read_text())["trouble"] == {}
 
 
 def test_test_email_sends_last_day_without_touching_state(site, paths):
@@ -392,3 +409,23 @@ def test_test_mode_ignores_quiet_hours(site, paths):
     outbox = Outbox()
     go(paths, outbox, now=datetime(2026, 10, 22, 5, 0, tzinfo=timezone.utc), test=True)
     assert len(outbox) == 1
+
+
+def test_card_shows_short_locations_pay_only_when_known_and_all_sources(site, paths):
+    long = "; ".join(f"{c}, California, United States of America" for c in ("San Jose", "Irvine", "Fresno", "Chico", "Napa"))
+    listed = evaluate(posting("a", company="NVIDIA", salary="$40 /hr", location=long), CRIT)
+    unlisted = evaluate(posting("b", company="NVIDIA", salary="", location="San Jose, CA"), CRIT)
+    _, text, html = render([listed, unlisted], now=NOW, sources="intern-list.com and 3 company career sites")
+    assert "San Jose, CA / Irvine, CA / Fresno, CA +2 more" in html and "United States of America" not in html
+    assert "white-space:nowrap\">San Jose" not in html           # a long location can't push the card wider
+    assert html.count("Pay not listed") == 0 and text.count("Pay not listed") == 1   # no chip; one plain-text fact
+    assert "from intern-list.com and 3 company career sites" in html
+
+
+def test_sources_line():
+    from jobscanner.__main__ import _sources
+    from jobscanner.config import ListSpec
+    specs = [ListSpec("cs"), ListSpec("gh", repo="SimplifyJobs/Summer2027-Internships"),
+             ListSpec("site:a", company="A", greenhouse="a"), ListSpec("site:b", company="B", lever="b")]
+    assert _sources(specs) == "intern-list.com, the SimplifyJobs GitHub list and 2 company career sites"
+    assert _sources(specs[:1]) == "intern-list.com"

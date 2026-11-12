@@ -27,6 +27,19 @@ def test_workday_posted(text, days):
     assert got is None if days is None else (NOW.date() - got.date()).days == days
 
 
+def test_workday_location_building_codes():
+    from jobscanner.sites import _workday_location
+    assert _workday_location("MA-TEWKSBURY-TB1 ~ 50 Apple Hill Dr ~ ASSABET BLDG") == "Tewksbury, MA"
+    assert _workday_location("US-CA-EL SEGUNDO-ES1 ~ 2000 E El Segundo Blvd") == "El Segundo, CA"
+    assert _workday_location("ZZ-NOWHERE-X1 ~ 1 Road") == "ZZ-NOWHERE-X1 ~ 1 Road"
+
+
+def test_workday_skips_job_pages_already_seen():
+    s = WorkdaySession([job("Security Intern")])
+    got = fetch_workday(s, WD, "NVIDIA", "site:nvidia", now=NOW, details=lambda url: False)
+    assert len(got) == 1 and got[0].location == "2 Locations"   # the list's own text; no page was read
+
+
 def test_workday_location():
     assert _workday_location("US, CA, Santa Clara; US, MA, Westford") == "Santa Clara, CA; Westford, MA"
     assert _workday_location("USA - Sunnyvale, CA") == "Sunnyvale, CA"
@@ -144,11 +157,23 @@ def test_fetch_oracle_stops_at_old_jobs():
         {"Id": "2", "Title": "Sales Manager", "PostedDate": "2026-11-01"},
         {"Id": "3", "Title": "Security Intern old", "PostedDate": "2026-10-01"},
     ]}]}
-    s = GetSession([Resp(page)])
+    detail = {"items": [{"ExternalDescriptionStr": "<p>Pay: $30 per hour</p>", "ExternalQualificationsStr": "Python"}]}
+    s = GetSession([Resp(page), Resp(detail)])
     got = fetch_oracle(s, ORACLE, "Fortinet", "site:fortinet", wants, now=NOW)
-    assert [p.row_id for p in got] == ["1"] and len(s.calls) == 1
+    assert [p.row_id for p in got] == ["1"] and len(s.calls) == 2
     assert got[0].apply_url == ORACLE + "/job/1" and got[0].date == "Nov 1"
     assert "sortBy=POSTING_DATES_DESC" in s.calls[0][1]["finder"]
+    assert s.calls[0][1]["expand"] == "requisitionList"     # without it the site sends no jobs at all
+    assert got[0].description.split() == "Pay: $30 per hour Python".split() and 'Id="1"' in s.calls[1][1]["finder"]
+    # Jobs seen before don't have their page read again.
+    s = GetSession([Resp(page)])
+    assert fetch_oracle(s, ORACLE, "Fortinet", "site:fortinet", wants, now=NOW, details=lambda url: False)[0].description == ""
+
+
+def test_fetch_oracle_says_when_the_site_has_jobs_but_sends_none():
+    with pytest.raises(SourceError, match="lists 1069 jobs but returned none"):
+        fetch_oracle(GetSession([Resp({"items": [{"TotalJobsCount": 1069}]})]), ORACLE, "Fortinet", "k", wants, now=NOW)
+    assert fetch_oracle(GetSession([Resp({"items": [{"TotalJobsCount": 0}]})]), ORACLE, "Fortinet", "k", wants, now=NOW) == []
 
 
 def test_fetch_amazon():
@@ -161,14 +186,16 @@ def test_fetch_amazon():
 
 def test_fetch_google():
     stamp = int(NOW.timestamp()) - 3600
-    data = [[["123", "Security Engineering Intern, BS/MS", "x", None, None, None, None, "Google", "en",
-              [["Sunnyvale, CA, USA"], ["New York, NY, USA"]], None, None, [stamp, 0]],
+    data = [[["123", "Security Engineering Intern, BS/MS", "x", [None, "<ul><li>Triage alerts</li></ul>"],
+              [None, "<p>Experience with Python</p>"], None, None, "Google", "en",
+              [["Sunnyvale, CA, USA"], ["New York, NY, USA"]], [None, "<p>About the job</p>"], None, [stamp, 0]],
              ["456", "Marketing Intern", "x", None, None, None, None, "Google", "en", [["NYC"]], None, None, [stamp, 0]]],
             None, 2, 20]
     html = "<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:" + __import__("json").dumps(data) + ", sideChannel: {}});</script>"
     got = fetch_google(GetSession([Text(html)]), "Google", "site:google", wants, now=NOW)
     assert [(p.row_id, p.location) for p in got] == [("123", "Sunnyvale, CA, USA; New York, NY, USA")]
     assert got[0].apply_url.endswith("/jobs/results/123")
+    assert got[0].description.split() == "About the job Triage alerts Experience with Python".split()
     with pytest.raises(SourceError):
         fetch_google(GetSession([Text("<html>changed</html>")]), "Google", "site:google", wants, now=NOW)
 
@@ -181,9 +208,15 @@ def test_fetch_apple():
          "locations": [{"city": "Cupertino", "stateProvince": "California", "name": "Cupertino"}]},
     ]}}}
     html = 'window.__staticRouterHydrationData = JSON.parse(' + json.dumps(json.dumps(hydration)) + ');'
-    got = fetch_apple(GetSession([Text(html)]), "Apple", "site:apple", wants, now=NOW)
+    page = {"loaderData": {"jobDetails": {"jobsData": {"description": "Hunt threats", "minimumQualifications": "Python"}}}}
+    detail = 'window.__staticRouterHydrationData = JSON.parse(' + json.dumps(json.dumps(page)) + ');'
+    got = fetch_apple(GetSession([Text(html), Text(detail)]), "Apple", "site:apple", wants, now=NOW)
     assert [(p.row_id, p.location, p.apply_url) for p in got] == [
         ("200-1", "Cupertino, California", "https://jobs.apple.com/en-us/details/200-1/security-engineering-internship")]
+    assert got[0].description.split() == ["Hunt", "threats", "Python"]
+    # A job page that can't be read doesn't lose the job.
+    got = fetch_apple(GetSession([Text(html), Text("<html>changed</html>")]), "Apple", "site:apple", wants, now=NOW)
+    assert len(got) == 1 and got[0].description == ""
 
 
 from jobscanner.sites import fetch_ashby, fetch_lever

@@ -24,6 +24,7 @@ CATCH_UP_SLACK = timedelta(hours=3)    # look back past the last run: jobright s
 MAX_CATCH_UP = timedelta(hours=24)
 DUE_SLACK = timedelta(minutes=10)      # cron jitter: a run at 4h55m still counts as 5h
 FETCH_WORKERS = 12
+TROUBLE_AFTER = timedelta(hours=24)    # a company site failing this long is mentioned in your emails
 
 
 def in_quiet_hours(now: datetime, quiet: tuple[int, int] | None) -> bool:
@@ -61,7 +62,7 @@ def run(
     available = source.fetch_list_map(session) if any(not (s.repo or s.is_site) for s in cfg.lists) else {}
     # intern-list first: when a job is on both, its copy has pay and an exact posting time.
     specs = sorted(cfg.lists, key=lambda s: (bool(s.repo), s.is_site))
-    results = _fetch_all(session, specs, available, since, now)
+    results = _fetch_all(session, specs, available, since, now, _details(state, preview))
     marks = tracker.Marks() if preview else tracker.load(session)
 
     fetched: dict[str, list[source.Posting]] = {}
@@ -75,7 +76,10 @@ def run(
         postings = results[spec.key]
         if isinstance(postings, Exception):
             (site_trouble if spec.is_site else failures).append(f"list '{spec.key}': {postings}")
+            if spec.is_site:
+                state.trouble.setdefault(spec.key, now.isoformat())
             continue
+        state.trouble.pop(spec.key, None)
         fetched[spec.key] = postings
         wanted[spec.key] = [p for p in postings if spec.wants(p.title)]
 
@@ -95,11 +99,14 @@ def run(
                 matches.append(m)
                 batch_keys.update(p.job_keys)
                 kept += 1
-        window = sites.RECENT if spec.is_site else source.GITHUB_LOOKBACK if spec.repo else now - since
+        span = sites.RECENT if spec.is_site else source.GITHUB_LOOKBACK if spec.repo else now - since
         log.info("list '%s': %d posted in the last %.1fh, %d new, %d qualify",
-                 spec.key, len(postings), window.total_seconds() / 3600, len(new), kept)
+                 spec.key, len(postings), span.total_seconds() / 3600, len(new), kept)
 
     matches = rank(matches)
+    state.trouble = {k: v for k, v in state.trouble.items() if any(s.key == k for s in specs)}  # sites since removed
+    look = dict(now=now, check_every=cfg.check_every_minutes, notes=_trouble_notes(state.trouble, specs, now),
+                sources=_sources(specs))
     # With a daily digest, only urgent matches are emailed now; the rest wait for the digest.
     digest_on = cfg.digest_hour is not None and not test
     urgent = [m for m in matches if not digest_on or is_urgent(m, cfg)]
@@ -115,7 +122,7 @@ def run(
 
     emailed_now = False
     if urgent:
-        subject, text, html_body = emailer.render(urgent, now=now, check_every=cfg.check_every_minutes, links=tracker.links)
+        subject, text, html_body = emailer.render(urgent, links=tracker.links, **look)
         deliver(f"[Test] {subject}" if test else subject, text, html_body, f"{len(urgent)} postings")
         emailed_now = True
     # The digest covers what was queued before this run; this run's go in the next one.
@@ -123,8 +130,7 @@ def run(
     if digest_on and today.hour >= cfg.digest_hour and state.last_digest_on != today.date().isoformat():
         queued = rank([m for p in state.pending if not marks.hides(p) and (m := evaluate(p, cfg.criteria))])
         if queued:
-            subject, text, html_body = emailer.render(queued, now=now, check_every=cfg.check_every_minutes,
-                                                      links=tracker.links, digest=True)
+            subject, text, html_body = emailer.render(queued, links=tracker.links, digest=True, **look)
             deliver(subject, text, html_body, f"the daily digest of {len(queued)} postings")
             emailed_now = True
         state.pending, state.last_digest_on = [], today.date().isoformat()
@@ -141,8 +147,7 @@ def run(
         elif now - state.last_email_at >= every - DUE_SLACK:
             quiet_for = (now - state.last_email_at).total_seconds() / 3600
             scanned = sum(len(p) for p in fetched.values())
-            subject, text, html_body = emailer.render_empty(quiet_for, scanned, len(fetched), now=now,
-                                                            check_every=cfg.check_every_minutes)
+            subject, text, html_body = emailer.render_empty(quiet_for, scanned, len(fetched), **look)
             deliver(subject, text, html_body, f"the 'nothing has been posted' email after {quiet_for:.1f}h")
         else:
             log.info("nothing new qualifies; next 'nothing posted' email after %gh of quiet", cfg.empty_email_every_hours)
@@ -173,12 +178,51 @@ def is_urgent(m: Match, cfg) -> bool:
     return m.priority is not None or (bar is not None and m.hourly is not None and m.hourly >= bar)
 
 
-def _fetch_all(session, specs, available, since, now) -> dict[str, list[source.Posting] | Exception]:
-    """Fetch every list at once (most of a run is waiting on ~80 sites); errors are returned, not raised."""
+def _details(state: State, preview: bool) -> Callable:
+    """For a site, which jobs still need their own page read (description, exact locations).
+
+    Jobs seen on an earlier run are never emailed again, so their pages aren't downloaded again;
+    on the first check of a site nothing is emailed, so none are.
+    """
+    def for_site(spec) -> Callable[[str], bool]:
+        if preview:
+            return lambda url: True
+        seen = state.lists.get(spec.key)
+        if seen is None:
+            return lambda url: False
+        return lambda url: source.url_key(url) not in seen
+    return for_site
+
+
+def _sources(specs) -> str:
+    """'intern-list.com, the SimplifyJobs GitHub list and 106 company career sites'."""
+    parts = ["intern-list.com"] if any(not (s.repo or s.is_site) for s in specs) else []
+    parts += [f"the {s.repo.split('/')[0]} GitHub list" for s in specs if s.repo]
+    n = sum(1 for s in specs if s.is_site)
+    if n:
+        parts.append(f"{n} company career site{'s' if n != 1 else ''}")
+    return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1] if parts else ""
+
+
+def _trouble_notes(trouble: dict[str, str], specs, now: datetime) -> list[str]:
+    """One line per company site that has failed on every check for a day or more."""
+    names = {s.key: s.company for s in specs if s.is_site}
+    notes = []
+    for key, since in sorted(trouble.items()):
+        began = datetime.fromisoformat(since)
+        if key in names and now - began >= TROUBLE_AFTER:
+            day = began.astimezone(emailer.DISPLAY_TZ)
+            notes.append(f"{names[key]}'s career site hasn't loaded since {day:%b} {day.day}. "
+                         f"Its address in config.yaml may need updating.")
+    return notes
+
+
+def _fetch_all(session, specs, available, since, now, details=None) -> dict[str, list[source.Posting] | Exception]:
+    """Fetch every list at once (most of a run is waiting on ~100 sites); errors are returned, not raised."""
     def one(spec):
         try:
             if spec.is_site:
-                return sites.fetch_site(session, spec, now=now)
+                return sites.fetch_site(session, spec, now=now, **({"details": details(spec)} if details else {}))
             if spec.repo:
                 return source.fetch_github_list(session, spec.repo, spec.key, now=now)
             if spec.key not in available:

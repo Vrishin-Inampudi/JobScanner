@@ -15,8 +15,16 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .filters import STATES
 from .skills import plain_text
 from .source import TIMEOUT, Posting, SourceError
+
+
+def _always(url: str) -> bool:
+    return True
+
+# Every fetcher takes ``details(apply_url) -> bool``: whether to make the extra request for a
+# job's own page (description, exact locations). Jobs already seen don't need it again.
 
 WORKDAY_PAGE = 20          # the most Workday returns per request
 WORKDAY_MAX_PAGES = 25
@@ -67,7 +75,7 @@ def _intern_facet(facets: list) -> tuple[str, str] | None:
 
 
 def fetch_workday(session: requests.Session, url: str, company: str, list_key: str,
-                  wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                  wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent internships on a Workday careers site. Locations come from each wanted job's page."""
     now = now or datetime.now(timezone.utc)
     host, tenant, site = workday_parts(url)
@@ -94,16 +102,16 @@ def fetch_workday(session: requests.Session, url: str, company: str, list_key: s
             when = workday_posted(job.get("postedOn"), now)
             if not title or not path.startswith("/") or when is None or now - when > RECENT or not wants(title):
                 continue
-            location, description = str(job.get("locationsText") or ""), ""
-            detail = session.get(f"{api}{path}", timeout=TIMEOUT)
-            if detail.ok:
+            location, description, url = str(job.get("locationsText") or ""), "", f"https://{host}/{site}{path}"
+            detail = session.get(f"{api}{path}", timeout=TIMEOUT) if details(url) else None
+            if detail is not None and detail.ok:
                 info = detail.json().get("jobPostingInfo") or {}
                 location = "; ".join(x for x in [info.get("location"), *(info.get("additionalLocations") or [])] if x) or location
                 description = plain_text(info.get("jobDescription"))
             postings.append(Posting(
                 list_key=list_key, row_id=path.rsplit("_", 1)[-1], title=title, company=company,
                 location=_workday_location(location), salary="", size=None, date=f"{when:%b} {when.day}",
-                work_model=None, apply_url=f"https://{host}/{site}{path}", posted_at=None, source=f"{company} careers site",
+                work_model=None, apply_url=url, posted_at=None, source=f"{company} careers site",
                 description=description,
             ))
         if len(jobs) < WORKDAY_PAGE:
@@ -112,13 +120,17 @@ def fetch_workday(session: requests.Session, url: str, company: str, list_key: s
 
 
 def _workday_location(text: str) -> str:
-    """'US, CA, Santa Clara' -> 'Santa Clara, CA'; 'USA - Sunnyvale, CA' -> 'Sunnyvale, CA'."""
+    """'US, CA, Santa Clara' -> 'Santa Clara, CA'; 'USA - Sunnyvale, CA' -> 'Sunnyvale, CA';
+    'MA-TEWKSBURY-TB1 ~ 50 Apple Hill Dr ~ ASSABET BLDG' -> 'Tewksbury, MA'."""
     out = []
     for part in text.split(";"):
         part = part.strip()
         m = re.fullmatch(r"US,\s*([A-Z]{2}),\s*(.+)", part)
         if m:
             part = f"{m.group(2)}, {m.group(1)}"
+        m = re.match(r"(?:US-)?([A-Z]{2})-([A-Z][A-Z .']*?)(?:-[A-Z0-9]+)?\s*~", part)   # state-CITY-building ~ street
+        if m and m.group(1) in STATES:
+            part = f"{m.group(2).title()}, {m.group(1)}"
         part = re.sub(r"^USA?\s*-\s*", "", part)
         if part:
             out.append(part)
@@ -126,7 +138,7 @@ def _workday_location(text: str) -> str:
 
 
 def fetch_greenhouse(session: requests.Session, board: str, company: str, list_key: str,
-                     wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                     wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent jobs on a Greenhouse board, using each job's first-published time."""
     if not _BOARD.match(board):
         raise SourceError(f"{company}: bad Greenhouse board name {board!r}")
@@ -143,7 +155,7 @@ def fetch_greenhouse(session: requests.Session, board: str, company: str, list_k
         if now - when > RECENT:
             continue
         description = ""
-        if job.get("id"):  # the list leaves descriptions out; fetch them only for jobs we keep
+        if job.get("id") and details(url):  # the list leaves descriptions out; fetch them only for new jobs we keep
             detail = session.get(f"{GREENHOUSE_API.format(board=board)}/{job['id']}", timeout=TIMEOUT)
             if detail.ok:
                 description = plain_text(detail.json().get("content"))
@@ -178,7 +190,7 @@ def _day(text: str, fmt: str) -> datetime | None:
 
 
 def fetch_oracle(session: requests.Session, url: str, company: str, list_key: str,
-                 wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                 wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent jobs on an Oracle Recruiting site, newest first, until they're older than RECENT."""
     now = now or datetime.now(timezone.utc)
     host, site = oracle_parts(url)
@@ -186,10 +198,13 @@ def fetch_oracle(session: requests.Session, url: str, company: str, list_key: st
     for n in range(ORACLE_MAX_PAGES):
         finder = f"findReqs;siteNumber={site},sortBy=POSTING_DATES_DESC,limit={ORACLE_PAGE},offset={n * ORACLE_PAGE}"
         resp = session.get(f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
-                           params={"onlyData": "true", "finder": finder}, timeout=TIMEOUT)
+                           params={"onlyData": "true", "expand": "requisitionList", "finder": finder}, timeout=TIMEOUT)
         resp.raise_for_status()
         items = resp.json().get("items") or [{}]
         jobs = items[0].get("requisitionList") or []
+        if not jobs and n == 0 and (items[0].get("TotalJobsCount") or 0) > 0:
+            # The site says it has jobs but sent none: the feed changed, so say so instead of "nothing new".
+            raise SourceError(f"{company}: Oracle Recruiting lists {items[0]['TotalJobsCount']} jobs but returned none")
         too_old = False
         for job in jobs:
             when = _day(job.get("PostedDate"), "%Y-%m-%d")
@@ -199,22 +214,38 @@ def fetch_oracle(session: requests.Session, url: str, company: str, list_key: st
             title = str(job.get("Title") or "").strip()
             if not title or not wants(title) or not job.get("Id"):
                 continue
+            url = f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{job['Id']}"
             postings.append(Posting(
                 list_key=list_key, row_id=str(job["Id"]), title=title, company=company,
                 location=str(job.get("PrimaryLocation") or ""), salary="", size=None, date=f"{when:%b} {when.day}",
-                work_model=None, apply_url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{job['Id']}",
-                posted_at=None, source=f"{company} careers site",
+                work_model=None, apply_url=url, posted_at=None, source=f"{company} careers site",
+                description=_oracle_description(session, host, site, str(job["Id"])) if details(url) else "",
             ))
         if too_old or len(jobs) < ORACLE_PAGE:
             break
     return postings
 
 
+def _oracle_description(session: requests.Session, host: str, site: str, job_id: str) -> str:
+    """One job's description from its own page; '' if it can't be read (the job is still worth sending)."""
+    if not re.fullmatch(r"[\w-]+", job_id):
+        return ""
+    try:
+        resp = session.get(f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails",
+                           params={"expand": "all", "onlyData": "true", "finder": f'ById;Id="{job_id}",siteNumber={site}'},
+                           timeout=TIMEOUT)
+        item = (resp.json().get("items") or [{}])[0] if resp.ok else {}
+    except (requests.RequestException, ValueError):
+        return ""
+    return plain_text("\n".join(str(item.get(k) or "") for k in
+                                ("ExternalDescriptionStr", "ExternalQualificationsStr", "ExternalResponsibilitiesStr")))
+
+
 AMAZON_API = "https://www.amazon.jobs/en/search.json"
 
 
 def fetch_amazon(session: requests.Session, company: str, list_key: str,
-                 wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                 wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent US internships on amazon.jobs."""
     now = now or datetime.now(timezone.utc)
     resp = session.get(AMAZON_API, params={"base_query": "intern", "country": "USA", "sort": "recent",
@@ -242,8 +273,19 @@ GOOGLE_SEARCH = "https://www.google.com/about/careers/applications/jobs/results/
 _GOOGLE_DATA = re.compile(r"AF_initDataCallback\(\{key: 'ds:1'.*?data:(.*?), sideChannel", re.S)
 
 
+_GOOGLE_TEXT_FIELDS = (10, 3, 4)  # about the job, responsibilities, qualifications
+
+
+def _google_text(job: list, i: int) -> str:
+    """One of the job's text sections, each stored as [None, '<html>']; '' if it isn't there."""
+    try:
+        return str(job[i][1] or "")
+    except (IndexError, TypeError):
+        return ""
+
+
 def fetch_google(session: requests.Session, company: str, list_key: str,
-                 wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                 wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent US internships on Google Careers, read from the data embedded in its results page."""
     now = now or datetime.now(timezone.utc)
     postings = []
@@ -271,6 +313,7 @@ def fetch_google(session: requests.Session, company: str, list_key: str,
                 list_key=list_key, row_id=job_id, title=title, company=company, location="; ".join(places),
                 salary="", size=None, date=f"{when:%b} {when.day}", work_model=None,
                 apply_url=f"{GOOGLE_SEARCH}{job_id}", posted_at=when, source=f"{company} careers site",
+                description=plain_text("\n".join(_google_text(job, i) for i in _GOOGLE_TEXT_FIELDS)),
             ))
         if len(jobs) < 20:
             break
@@ -282,7 +325,7 @@ _APPLE_DATA = re.compile(r'window\.__staticRouterHydrationData = JSON\.parse\("(
 
 
 def fetch_apple(session: requests.Session, company: str, list_key: str,
-                wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent US internships on jobs.apple.com, read from the data embedded in its search page."""
     now = now or datetime.now(timezone.utc)
     postings = []
@@ -306,15 +349,28 @@ def fetch_apple(session: requests.Session, company: str, list_key: str,
             places = [", ".join(x for x in (loc.get("city"), loc.get("stateProvince")) if x) or str(loc.get("name") or "")
                       for loc in job.get("locations") or []]
             slug = re.sub(r"[^a-z0-9-]", "", str(job.get("transformedPostingTitle") or ""))
+            url = f"https://jobs.apple.com/en-us/details/{pid}/{slug}"
             postings.append(Posting(
                 list_key=list_key, row_id=pid, title=title, company=company, location="; ".join(places),
                 salary="", size=None, date=f"{when:%b} {when.day}", work_model=None,
-                apply_url=f"https://jobs.apple.com/en-us/details/{pid}/{slug}", posted_at=when,
-                source=f"{company} careers site",
+                apply_url=url, posted_at=when, source=f"{company} careers site",
+                description=(_apple_description(session, url) if details(url) else "") or plain_text(job.get("jobSummary")),
             ))
         if len(results) < 20:
             break
     return postings
+
+
+def _apple_description(session: requests.Session, url: str) -> str:
+    """One job's description and qualifications from its own page; '' if it can't be read."""
+    try:
+        resp = session.get(url, timeout=TIMEOUT)
+        m = _APPLE_DATA.search(resp.text) if resp.ok else None
+        job = json.loads(json.loads(f'"{m.group(1)}"'))["loaderData"]["jobDetails"]["jobsData"] if m else {}
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return ""
+    return plain_text("\n".join(str(job.get(k) or "") for k in
+                                ("jobSummary", "description", "minimumQualifications", "preferredQualifications")))
 
 
 LEVER_API = "https://api.lever.co/v0/postings/{board}"
@@ -322,7 +378,7 @@ ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{board}"
 
 
 def fetch_lever(session: requests.Session, board: str, company: str, list_key: str,
-                wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent jobs on a Lever board (jobs.lever.co/<board>)."""
     if not _BOARD.match(board):
         raise SourceError(f"{company}: bad Lever board name {board!r}")
@@ -356,7 +412,7 @@ def _ashby_place(item: dict) -> str:
 
 
 def fetch_ashby(session: requests.Session, board: str, company: str, list_key: str,
-                wants=lambda title: True, now: datetime | None = None) -> list[Posting]:
+                wants=lambda title: True, now: datetime | None = None, details=_always) -> list[Posting]:
     """Recent jobs on an Ashby board (jobs.ashbyhq.com/<board>)."""
     if not _BOARD.match(board):
         raise SourceError(f"{company}: bad Ashby board name {board!r}")
@@ -387,16 +443,17 @@ def fetch_ashby(session: requests.Session, board: str, company: str, list_key: s
 BUILTIN = {"amazon": fetch_amazon, "google": fetch_google, "apple": fetch_apple}
 
 
-def fetch_site(session: requests.Session, spec, now: datetime | None = None) -> list[Posting]:
+def fetch_site(session: requests.Session, spec, now: datetime | None = None, details=_always) -> list[Posting]:
     """Fetch one company site described by a config ListSpec."""
+    kw = dict(wants=spec.wants, now=now, details=details)
     if spec.workday:
-        return fetch_workday(session, spec.workday, spec.company, spec.key, spec.wants, now=now)
+        return fetch_workday(session, spec.workday, spec.company, spec.key, **kw)
     if spec.greenhouse:
-        return fetch_greenhouse(session, spec.greenhouse, spec.company, spec.key, spec.wants, now=now)
+        return fetch_greenhouse(session, spec.greenhouse, spec.company, spec.key, **kw)
     if spec.lever:
-        return fetch_lever(session, spec.lever, spec.company, spec.key, spec.wants, now=now)
+        return fetch_lever(session, spec.lever, spec.company, spec.key, **kw)
     if spec.ashby:
-        return fetch_ashby(session, spec.ashby, spec.company, spec.key, spec.wants, now=now)
+        return fetch_ashby(session, spec.ashby, spec.company, spec.key, **kw)
     if spec.oracle:
-        return fetch_oracle(session, spec.oracle, spec.company, spec.key, spec.wants, now=now)
-    return BUILTIN[spec.careers](session, spec.company, spec.key, spec.wants, now=now)
+        return fetch_oracle(session, spec.oracle, spec.company, spec.key, **kw)
+    return BUILTIN[spec.careers](session, spec.company, spec.key, **kw)

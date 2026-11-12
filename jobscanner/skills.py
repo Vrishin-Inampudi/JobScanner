@@ -46,7 +46,7 @@ class Skills:
         return hits(self.have), hits(self.lack)
 
 
-def plain_text(markup: str, limit: int = 6000) -> str:
+def plain_text(markup: str, limit: int = 20000) -> str:  # long enough to reach the pay range, usually at the end
     """Job description HTML -> plain text (also handles HTML that was escaped once more)."""
     text = htmllib.unescape(str(markup or ""))
     text = re.sub(r"<(br|/p|/li|/div|/h\d)[^>]*>", "\n", text, flags=re.I)

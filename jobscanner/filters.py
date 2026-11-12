@@ -43,6 +43,50 @@ def parse_hourly(salary: str) -> float | None:
     return top
 
 
+_PAY_AMOUNT = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s?(k\b)?", re.I)
+_PAY_UNITS = [
+    (re.compile(r"(/|\bper\b|\ban?\b)\s*(hr|hour)|\bhourly", re.I), 1.0),
+    (re.compile(r"(/|\bper\b|\ban?\b)\s*(yr|year|annum)|\bannual|\byearly", re.I), 1 / HOURS_PER_YEAR),
+    (re.compile(r"(/|\bper\b|\ban?\b)\s*(mo|month)\b|\bmonthly", re.I), 12 / HOURS_PER_YEAR),
+    (re.compile(r"(/|\bper\b|\ban?\b)\s*(wk|week)\b|\bweekly", re.I), 1 / 40),
+]
+_PAY_WORDS = re.compile(r"salary|\bpay\b|compensation|\bwages?\b|\brate\b|base range|pay range", re.I)
+_EXTRAS = r"(bonus|stipend|relocation|housing|reimburse\w*|allowance|scholarship|revenue|funding|valuation)"
+_NOT_PAY = re.compile(rf"^\s*(million|billion|bn\b|mm\b|m\b|b\b)|^.{{0,25}}\b{_EXTRAS}", re.I | re.S)
+_EXTRA_BEFORE = re.compile(rf"\b{_EXTRAS}\b[^.$]{{0,30}}$", re.I)
+MIN_SANE_HOURLY, MAX_SANE_HOURLY = 8, 150  # outside this it isn't an intern's pay
+
+
+def pay_in_text(text: str) -> float | None:
+    """Top of the pay range a job description states, as an hourly rate, or None.
+
+    Counts a dollar amount only when it has a unit ('$32 - $35 per hour', '$90,000 annually')
+    or follows a pay word ('salary range: $45,900 - $91,900'), so '$5,000 relocation bonus'
+    and '$2 billion in revenue' are ignored.
+    """
+    text = text or ""
+    found = []
+    for m in _PAY_AMOUNT.finditer(text):
+        before, after = text[max(0, m.start() - 120):m.start()], text[m.end():m.end() + 45]
+        if _NOT_PAY.search(after) or _EXTRA_BEFORE.search(before):
+            continue
+        amount = float(m.group(1).replace(",", "") + (m.group(2) or "")) * (1000 if m.group(3) else 1)
+        rate = next((r for unit, r in _PAY_UNITS if unit.search(after)), None)
+        if rate is None:
+            rate = next((r for unit, r in _PAY_UNITS if unit.search(before[-60:])), None)
+        if rate is None:
+            if not _PAY_WORDS.search(before):
+                continue
+            # No unit given: a pay figure this large is a yearly salary, this small an hourly rate.
+            rate = 1 / HOURS_PER_YEAR if amount >= 20000 else 1.0 if amount <= MAX_SANE_HOURLY else None
+            if rate is None:
+                continue
+        hourly = round(amount * rate, 2)
+        if MIN_SANE_HOURLY <= hourly <= MAX_SANE_HOURLY:
+            found.append(hourly)
+    return max(found) if found else None
+
+
 def parse_size(size: str | None) -> int:
     """Lower bound of a company-size bucket like '1001-5000' or '10000+'."""
     m = re.match(r"\s*([\d,]+)", size or "")
@@ -93,6 +137,22 @@ _SHORT_PLACES = {"sf": ("san francisco", "CA"), "la": ("los angeles", "CA"), "ny
                  "dc": ("washington", "DC")}
 
 
+# Cities postings name without a state ("Seattle", "Greater Boston Area") that can only be one place.
+_BARE_CITIES = {
+    "san francisco": "CA", "san jose": "CA", "palo alto": "CA", "mountain view": "CA", "sunnyvale": "CA",
+    "santa clara": "CA", "menlo park": "CA", "cupertino": "CA", "los angeles": "CA", "santa monica": "CA",
+    "irvine": "CA", "san diego": "CA", "seattle": "WA", "bellevue": "WA", "redmond": "WA", "new york": "NY",
+    "new york city": "NY", "brooklyn": "NY", "boston": "MA", "chicago": "IL", "austin": "TX",
+    "mclean": "VA", "reston": "VA",
+}
+
+
+def _bare(part: str) -> str:
+    """'Remote (Seattle)' / 'Hybrid - Austin' / 'Greater Boston Area' -> 'seattle' / 'austin' / 'boston'."""
+    name = re.sub(r"^(remote|hybrid|on-?site)\s*[-–:(]\s*", "", part.strip().lower()).rstrip(") ")
+    return re.sub(r"^greater\s+|\s+(metro(politan)?\s+)?area$", "", name)
+
+
 def _places(location: str) -> list[tuple[str, str]]:
     """'San Jose, CA, United States; New York, NY' -> [('san jose', 'CA'), ('new york', 'NY')]."""
     out = []
@@ -100,6 +160,9 @@ def _places(location: str) -> list[tuple[str, str]]:
         bits = [b.strip() for b in part.split(",") if b.strip()]
         if len(bits) == 1 and bits[0].lower() in _SHORT_PLACES:
             out.append(_SHORT_PLACES[bits[0].lower()])
+            continue
+        if len(bits) == 1 and _bare(bits[0]) in _BARE_CITIES:
+            out.append((_bare(bits[0]), _BARE_CITIES[_bare(bits[0])]))
             continue
         if bits and bits[-1].lower() in ("united states", "united states of america", "us", "usa"):
             bits = bits[:-1]
@@ -114,16 +177,6 @@ def _places(location: str) -> list[tuple[str, str]]:
     return out
 
 
-# Countries that mark a location as outside the US (company career sites list jobs worldwide).
-FOREIGN = re.compile(r"\b(" + "|".join([
-    "canada", "united kingdom", "uk", "england", "scotland", "ireland", "india", "germany", "france", "israel",
-    "romania", "poland", "spain", "italy", "netherlands", "belgium", "switzerland", "austria", "sweden",
-    "denmark", "norway", "finland", "portugal", "czech republic", "czechia", "hungary", "greece", "türkiye",
-    "turkey", "japan", "china", "hong kong", "taiwan", "korea", "singapore", "malaysia", "vietnam",
-    "philippines", "indonesia", "thailand", "australia", "new zealand", "mexico", "brazil", "argentina",
-    "colombia", "chile", "costa rica", "united arab emirates", "uae", "saudi arabia", "qatar", "egypt",
-    "south africa", "luxembourg", "lithuania", "ukraine", "serbia", "bulgaria", "croatia", "estonia",
-]) + r")\b", re.I)
 _US = re.compile(r"\b(united states|usa|u\.s\.a?\.?|us)\b", re.I)
 
 
@@ -153,8 +206,7 @@ def _in_us(part: str) -> bool:
         return True
     if re.match(r"([A-Z]{2})-", part) and part[:2] in STATES:    # 'MA-TEWKSBURY-TB1 ~ ...'
         return True
-    name = re.sub(r"^(remote|hybrid|on-?site)\s*[-–:(]\s*", "", part.strip().lower()).rstrip(") ")
-    name = re.sub(r"^greater\s+|\s+(metro(politan)?\s+)?area$", "", name)
+    name = _bare(part)
     return name in _US_CITIES or name in _SHORT_PLACES or name in _STATE_CODES or name.upper() in STATES
 
 
@@ -202,10 +254,28 @@ def location_match(location: str, wanted: list[str]) -> str | None:
     return None
 
 
-def pretty_location(location: str) -> str:
-    """'Multi Location\\nLehi, UT, United States\\nSan Jose, CA, United States' -> 'Lehi, UT / San Jose, CA'."""
-    parts = [x.strip() for x in re.split(r"[;\n]", location) if x.strip() and x.strip().lower() != "multi location"]
-    short = [p[: -len(", United States")] if p.endswith(", United States") else p for p in parts]
+_COUNTRY_TAIL = re.compile(r",\s*(united states( of america)?|usa?|u\.s\.a?\.?)\s*$", re.I)
+MAX_PLACES_SHOWN = 3
+
+
+def pretty_location(location: str, limit: int | None = None) -> str:
+    """'Multi Location\\nLehi, UT, United States\\nSan Jose, California, United States of America' -> 'Lehi, UT / San Jose, CA'.
+
+    With ``limit``, a long list of cities is cut to that many, then '+N more'.
+    """
+    short = []
+    for part in re.split(r"[;\n]", location):
+        part = _COUNTRY_TAIL.sub("", part.strip())
+        if not part or part.lower() == "multi location":
+            continue
+        bits = [b.strip() for b in part.split(",")]
+        if len(bits) >= 2 and bits[-1].lower() in _STATE_CODES:   # 'San Jose, California' -> 'San Jose, CA'
+            part = ", ".join([*bits[:-1], _STATE_CODES[bits[-1].lower()]])
+        if part not in short:
+            short.append(part)
+    if limit and len(short) > limit:
+        short = [*short[:limit], f"+{len(short) - limit} more"]
+        return " / ".join(short[:-1]) + " " + short[-1]
     return " / ".join(short)
 
 
@@ -290,6 +360,16 @@ _OBTAIN_CLEARANCE = re.compile(r"(obtain|eligib\w*\s+(for|to)|able\s+to\s+(get|o
 _CITIZEN = re.compile(r"\bu\.?\s?s\.?\s+citizen|united states citizen", re.I)
 
 
+_GRAD_LEVEL = re.compile(r"\b(grad|graduate|post-?grad(uate)?|master'?s|master of|mba|ph\.?\s?d|doctoral)\b"
+                         r"|(?-i:\bM\.?S\.?(?![\w.])(?!\s+(Office|Teams|Excel)))", re.I)
+_UNDERGRAD = re.compile(r"undergrad|bachelor|(?-i:\bB\.?[SA]\.?(?![\w.]))|\ball (degree )?levels\b", re.I)
+
+
+def grad_level(p: Posting) -> bool:
+    """A role for graduate students: the title says Grad/Masters/MBA/PhD and doesn't also say undergrad."""
+    return bool(_GRAD_LEVEL.search(p.title)) and not _UNDERGRAD.search(p.title)
+
+
 def phd_only(p: Posting) -> bool:
     """A PhD role: says PhD in the title, or asks only for a PhD in its requirements."""
     if _PHD.search(p.title) and not _NOT_PHD.search(p.title):
@@ -321,6 +401,7 @@ class Criteria:
     # Eligibility: hard filters applied before the criteria above.
     graduation: tuple[int, int] | None = None  # (year, month) you graduate
     skip_phd_only: bool = False
+    skip_grad_level: bool = False   # also skip Masters/MBA/"Grad Intern" roles
     # Company matches (priority or large) must also be in `locations`, remote, or unspecific.
     company_needs_location: bool = False
     # Skills to point out in each posting (only highlighted; never filters).
@@ -340,9 +421,21 @@ class Match:
     lack: list[str] = field(default_factory=list)  # ... and that you don't
 
 
+def _no_city(part: str) -> bool:
+    """A place that names no city: 'United States', 'Hybrid', 'Multiple Locations', 'Texas'."""
+    name = _COUNTRY_TAIL.sub("", part.strip()).strip().lower()
+    return (not name or bool(_GENERIC.fullmatch(name)) or bool(_US.fullmatch(name)) or name == "multi location"
+            or name in _STATE_CODES or name.upper() in STATES)
+
+
 def anywhere(p: Posting) -> bool:
-    """Remote, or no specific city given ('United States', 'Hybrid', '')."""
-    return (p.work_model or "").lower() == "remote" or "remote" in p.location.lower() or not _places(p.location)
+    """Remote, or no specific city given ('United States', 'Hybrid', 'Texas', '').
+
+    A place we can't read ('Bldg 4 ~ 50 Apple Hill Dr') is still a specific place, so it doesn't count.
+    """
+    if (p.work_model or "").lower() == "remote" or "remote" in p.location.lower():
+        return True
+    return all(_no_city(part) for part in re.split(r"[;\n]", p.location) if part.strip())
 
 
 def eligible(p: Posting, c: Criteria) -> bool:
@@ -350,13 +443,16 @@ def eligible(p: Posting, c: Criteria) -> bool:
         return False
     if c.skip_phd_only and phd_only(p):
         return False
+    if c.skip_grad_level and grad_level(p):
+        return False
     return grad_fits(p.grad_time, c.graduation)
 
 
 def evaluate(p: Posting, c: Criteria) -> Match | None:
     if not eligible(p, c):
         return None
-    hourly = parse_hourly(p.salary)
+    # Company sites have no salary field, but their descriptions often state the pay range.
+    hourly = parse_hourly(p.salary) or pay_in_text(f"{p.qualifications}\n{p.description}")
     area = location_match(p.location, c.locations) if c.locations else None
     priority = priority_match(p.company, c.priority_companies)
     size = parse_size(p.size)
@@ -378,7 +474,7 @@ def evaluate(p: Posting, c: Criteria) -> Match | None:
     reasons = [priority or p.company]
     if hourly is not None:
         reasons.append(f"${hourly:g}/hr")
-    reasons.append(pretty_location(p.location) or "location unknown")
+    reasons.append(pretty_location(p.location, MAX_PLACES_SHOWN) or "location unknown")
     have, lack = c.skills.find(f"{p.title}\n{p.qualifications}\n{p.description}")
     return Match(p, hourly, area, priority, size, reasons, requirement_flags(p), have, lack)
 

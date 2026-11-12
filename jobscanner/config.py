@@ -38,9 +38,14 @@ class ListSpec:
         t = title.lower()
         if self.title_require and not any(re.search(rf"\b{re.escape(w.lower())}(s|ships?)?\b", t) for w in self.title_require):
             return False
-        if self.title_include and not any(w.lower() in t for w in self.title_include):
+        if self.title_include and not any(_starts_word(w, t) for w in self.title_include):
             return False
-        return not any(w.lower() in t for w in self.title_exclude)
+        return not any(_starts_word(w, t) for w in self.title_exclude)
+
+
+def _starts_word(word: str, title: str) -> bool:
+    """The title has a word starting with ``word``: 'cyber' is in 'Cybersecurity Intern', 'noc' isn't in 'Innocent'."""
+    return re.search(rf"(?<![a-z0-9]){re.escape(word.lower())}", title) is not None
 
 
 @dataclass
@@ -82,6 +87,7 @@ def load_config(path: str | Path) -> Config:
         match=match,
         graduation=graduation,
         skip_phd_only=bool(elig.get("skip_phd_only", False)),
+        skip_grad_level=bool(elig.get("skip_grad_level", False)),
         company_needs_location=bool(crit.get("company_needs_location", False)),
         skills=_skills(path, raw.get("skills") or {}),
     )

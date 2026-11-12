@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from .filters import Match, pretty_location, pretty_month
+from .filters import MAX_PLACES_SHOWN, Match, pretty_location, pretty_month
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
@@ -50,12 +50,17 @@ def _pay(m: Match) -> str:
     return f"${m.hourly:,.0f}/hr" if m.hourly is not None else "Pay not listed"
 
 
+def _where(p) -> str:
+    return pretty_location(p.location, MAX_PLACES_SHOWN)
+
+
 def _tags(m: Match) -> list[tuple[str, bool]]:
-    """Why it matched (plus pay, always), as (label, highlighted) pairs."""
+    """Why it matched (plus pay when the posting gives it), as (label, highlighted) pairs."""
     tags = []
     if m.priority:
         tags.append(("★ Top company", True))
-    tags.append((_pay(m), False))
+    if m.hourly is not None:
+        tags.append((_pay(m), True))
     if m.area:
         tags.append((f"In {m.area}", False))
     if m.size >= 10000:
@@ -99,9 +104,9 @@ def _text(matches: list[Match], now: datetime, links=None) -> str:
     parts = []
     for m in matches:
         p = m.posting
-        facts = " · ".join(x for x in (pretty_location(p.location), _pay(m), p.work_model, f"posted {_age(m, now)}",
+        facts = " · ".join(x for x in (_where(p), _pay(m), p.work_model, f"posted {_age(m, now)}",
                                          _timing(p), _via(p)) if x)
-        why = ", ".join(label for label, _ in _tags(m))
+        why = ", ".join(label for label, _ in _tags(m)) or "matches your rules"
         track = (links or (lambda _: None))(p)
         mark = f"Mark applied: {track['applied']}\nNot interested: {track['skip']}\n" if track else ""
         skills = f"Skills: {_skills_text(m)}\n" if _skills_text(m) else ""
@@ -110,7 +115,10 @@ def _text(matches: list[Match], now: datetime, links=None) -> str:
 
 
 def _via(p) -> str:
-    return "" if p.source == "intern-list" else f"via {p.source}"
+    """Where we found it, unless that's intern-list. The card already names the company, so its own site is just that."""
+    if p.source == "intern-list":
+        return ""
+    return "via company site" if p.source == f"{p.company} careers site" else f"via {p.source}"
 
 
 def _event(m: Match, now: datetime, links=None) -> str:
@@ -119,9 +127,10 @@ def _event(m: Match, now: datetime, links=None) -> str:
     p = m.posting
     c = TOP if m.priority else OTHER
     when = f"{_clock(p.posted_at)} · {_age(m, now)}" if p.posted_at else f"Posted {p.date}"
+    # Each fact stays on one line where it fits, but may wrap: a long one must never widen the card.
     facts = " &nbsp;·&nbsp; ".join(
-        f'<span style="white-space:nowrap">{e(x)}</span>'
-        for x in (p.company, pretty_location(p.location), p.work_model, _timing(p), _via(p)) if x
+        f'<span style="display:inline-block;max-width:100%">{e(x)}</span>'
+        for x in (_where(p), p.work_model, _timing(p), _via(p)) if x
     )
     tags = "".join(
         f'<span style="display:inline-block;margin:0 6px 6px 0;padding:3px 9px;border-radius:6px;'
@@ -133,10 +142,11 @@ def _event(m: Match, now: datetime, links=None) -> str:
 <tr><td style="padding:0 0 10px 0">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{c['fill']}"
          style="background:{c['fill']};border-radius:8px;border-left:4px solid {c['bar']}">
-    <tr><td style="padding:14px 16px 12px 14px">
-      <div style="font:600 16px/1.35 {SANS};color:{TEXT}">
+    <tr><td style="padding:14px 16px 12px 14px;word-break:break-word">
+      <div style="font:700 13px/1.4 {SANS};color:{c['tag_text']};letter-spacing:0.2px">{e(p.company)}
+        <span style="font-weight:400;color:{MUTED}">&nbsp;·&nbsp; {e(when)}</span></div>
+      <div style="font:600 17px/1.35 {SANS};color:{TEXT};margin:3px 0 5px">
         <a href="{e(p.apply_url)}" style="color:{TEXT};text-decoration:none">{e(p.title)}</a></div>
-      <div style="font:500 13px/1.5 {SANS};color:{c['tag_text']};margin:3px 0 6px">{e(when)}</div>
       <div style="font:400 13px/1.55 {SANS};color:{MUTED};margin-bottom:10px">{facts}</div>
       <div>{tags}</div>{_skill_chips(m)}
       <a href="{e(p.apply_url)}" style="display:inline-block;margin-top:4px;padding:7px 14px;border-radius:7px;
@@ -171,7 +181,14 @@ def _legend_dot(color: str, label: str) -> str:
             f'<span style="vertical-align:middle">{label}</span></span>')
 
 
-def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool, check_every: int) -> str:
+def _notes(notes) -> str:
+    """Things that need your attention (a company site that stopped loading), above the footer."""
+    return "".join(f'<div style="margin:0 0 8px;padding:8px 10px;border-radius:6px;background:{LACK["fill"]};'
+                   f'color:{LACK["text"]};font:400 12px/1.5 {SANS}">{html.escape(n)}</div>' for n in notes)
+
+
+def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, legend: bool, check_every: int,
+          notes=(), sources: str = "") -> str:
     """The shared dark shell: header with today badge, headline, body rows, footer."""
     local = now.astimezone(DISPLAY_TZ)
     key = (f"{_legend_dot(TOP['bar'], 'Top company')}{_legend_dot(OTHER['bar'], 'Other match')}"
@@ -181,9 +198,9 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
 <meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>JobScanner</title></head>
 <body style="margin:0;padding:0;background:{BG}" bgcolor="{BG}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{html.escape(preheader)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{BG}" style="background:{BG}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{BG}" style="background:{BG};table-layout:fixed">
 <tr><td align="center" style="padding:24px 12px">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;table-layout:fixed">
     <tr><td style="padding:0 2px 14px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td style="font:600 13px/1 {SANS};color:{MUTED}">JobScanner</td>
@@ -199,8 +216,8 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
     <tr><td style="height:16px;line-height:16px;font-size:0">&nbsp;</td></tr>
     {body}
     <tr><td style="padding:14px 2px 0;border-top:1px solid {LINE};font:400 12px/1.6 {SANS};color:{MUTED}">
-      {key}
-      <div style="margin-top:8px;color:{FAINT}">Checked every {_interval(check_every).removeprefix("an ")} from intern-list.com &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
+      {_notes(notes)}{key}
+      <div style="margin-top:8px;color:{FAINT}">Checked every {_interval(check_every).removeprefix("an ")} from {html.escape(sources or "intern-list.com")} &middot; edit config.yaml in your JobScanner repo to change what you get.</div>
     </td></tr>
   </table>
 </td></tr>
@@ -208,7 +225,8 @@ def _page(now: datetime, preheader: str, headline: str, sub: str, body: str, leg
 </body></html>"""
 
 
-def _html(matches: list[Match], now: datetime, check_every: int, links=None, digest: bool = False) -> str:
+def _html(matches: list[Match], now: datetime, check_every: int, links=None, digest: bool = False,
+          notes=(), sources: str = "") -> str:
     noun = "internship" if len(matches) == 1 else "internships"
     return _page(
         now,
@@ -219,24 +237,30 @@ def _html(matches: list[Match], now: datetime, check_every: int, links=None, dig
         body="".join(_event(m, now, links) for m in matches),
         legend=True,
         check_every=check_every,
+        notes=notes,
+        sources=sources,
     )
 
 
 def render(matches: list[Match], now: datetime | None = None, check_every: int = 60, links=None,
-           digest: bool = False) -> tuple[str, str, str]:
-    """The job email. ``links(posting)`` gives tracker links; ``digest`` words it as the daily digest."""
+           digest: bool = False, notes=(), sources: str = "") -> tuple[str, str, str]:
+    """The job email. ``links(posting)`` gives tracker links; ``digest`` words it as the daily digest.
+
+    ``notes`` are warnings shown above the footer; ``sources`` names what was checked.
+    """
     now = now or datetime.now(timezone.utc)
     subject = _subject(matches)
     if digest:
         subject = "☀️ Daily digest: " + subject.removeprefix("🎯 ").replace(" new ", " more ", 1)
-    return subject, _text(matches, now, links), _html(matches, now, check_every, links, digest)
+    text = _text(matches, now, links) + "".join(f"\nNote: {n}" for n in notes)
+    return subject, text, _html(matches, now, check_every, links, digest, notes, sources)
 
 
 EMPTY_HEADLINE = "Hi, nothing has been posted!"
 
 
 def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | None = None,
-                 check_every: int = 60) -> tuple[str, str, str]:
+                 check_every: int = 60, notes=(), sources: str = "") -> tuple[str, str, str]:
     """The 'nothing has been posted' email, in the same template."""
     now = now or datetime.now(timezone.utc)
     back = f"Check back in {_interval(check_every)}."
@@ -253,9 +277,9 @@ def render_empty(quiet_hours: float, scanned: int, lists: int, now: datetime | N
   </table>
 </td></tr>"""
     subject = f"Nothing new in the last {hours}h · {_clock(now)} ET"
-    text = f"{EMPTY_HEADLINE}\n{back}\n\n{detail}\n"
+    text = f"{EMPTY_HEADLINE}\n{back}\n\n{detail}\n" + "".join(f"Note: {n}\n" for n in notes)
     return subject, text, _page(now, f"{EMPTY_HEADLINE} {back}", EMPTY_HEADLINE, back, slot,
-                                legend=False, check_every=check_every)
+                                legend=False, check_every=check_every, notes=notes, sources=sources)
 
 
 def send(subject: str, text: str, html_body: str, env=os.environ) -> None:

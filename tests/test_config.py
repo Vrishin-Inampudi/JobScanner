@@ -73,3 +73,11 @@ def test_skills_section(tmp_path):
     p.write_text("lists: [cs]\nskills:\n  have: [[]]\n")
     with pytest.raises(ValueError, match="skills"):
         load_config(p)
+
+
+def test_title_words_match_from_the_start_of_a_word():
+    spec = ListSpec(key="x", title_include=["cyber", "noc", "network"], title_exclude=["neural network", "power"])
+    assert spec.wants("Cybersecurity Intern") and spec.wants("NOC Technician Intern") and spec.wants("Networking Intern")
+    assert not spec.wants("Innocent Bystander Intern")          # 'noc' inside a word
+    assert not spec.wants("Research Intern - Neural Network Training")
+    assert not spec.wants("Network Intern, Powertrain")

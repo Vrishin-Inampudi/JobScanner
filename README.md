@@ -21,7 +21,8 @@ A posting qualifies if it meets any one of these:
   Palo Alto Networks, CrowdStrike, NVIDIA, Apple or Meta, and is also in one of those
   places, remote, or posted without a specific city
 
-It skips roles for graduating classes other than May 2028 and PhD-only roles.
+It skips roles for graduating classes other than May 2028, PhD-only roles and roles for
+graduate students ("Grad Intern", "Masters/PhD", "MBA Intern").
 
 The ranking puts priority companies first, then higher pay, then a preferred location,
 then bigger companies, then the newest postings.
@@ -50,7 +51,9 @@ then bigger companies, then the newest postings.
 GitHub emails you when a run fails, for example if intern-list.com changes its
 layout. So if it breaks, you'll hear about it instead of it going quiet. Brief site
 outages are retried, and one company's career site being down only logs a warning and
-is checked again next run; it doesn't fail the run.
+is checked again next run; it doesn't fail the run. If a company's site keeps failing for
+a day, your emails say so in a note above the footer until it loads again, since that
+usually means its address in `config.yaml` has changed.
 
 ### Make the scheduled runs reliable (recommended)
 
@@ -129,7 +132,9 @@ criteria:
   Cybersecurity, `swe` is Software Engineering, `eng` is Engineering and Development,
   and `aiml` is ML/AI. Run `python -m jobscanner --show-lists` to see all of them.
   `title_include` and `title_exclude` keep or drop titles that contain any of the
-  given words. They're case-insensitive.
+  given words. They're case-insensitive and match from the start of a word: `cyber`
+  matches "Cybersecurity", but `noc` doesn't match "Innocent". A word like `network` also
+  appears in "Neural Network", so exclude phrases you don't mean (`neural network`).
 - **GitHub lists**: a list entry with `repo:` reads a community internship repo instead,
   such as `SimplifyJobs/Summer2027-Internships`. Any repo with
   `.github/scripts/listings.json` in that format works. Those lists have no pay or
@@ -151,8 +156,10 @@ criteria:
   territory, or names a known US city), or if it names no place at all ("Remote",
   "Multiple Locations"). A bare foreign city like "London" or "Toronto, ON" is skipped.
 - **`eligibility`**: hard filters, applied before `criteria`. `graduation: 2028-05` skips
-  roles aimed at other graduating classes, and `skip_phd_only: true` skips PhD-only
-  roles. Each email card also shows the start term and target grad class when the
+  roles aimed at other graduating classes, `skip_phd_only: true` skips PhD-only
+  roles, and `skip_grad_level: true` also skips roles whose title is for graduate
+  students ("Grad Intern", "Masters/PhD", "MBA") unless it also says undergrad, bachelor's
+  or BS. Each email card also shows the start term and target grad class when the
   posting gives them, plus tags like "Needs clearance" or "US citizens".
 - **`digest_hour`**: send less-urgent matches as one morning email at this hour
   (Eastern). Matches at top companies, or paying at least `min_hourly_pay`, still arrive
@@ -174,7 +181,9 @@ criteria:
 - **`match`**: `any` means one criterion is enough. `all` means every criterion must
   hold. Under `all`, postings without a listed salary fail the pay check.
 - **`min_hourly_pay`**: compared against the top of the posted range. Yearly pay is
-  divided by 2,080 hours.
+  divided by 2,080 hours. When a job has no salary field (company sites never do), the
+  pay range is read from its description, e.g. "$32 - $35 per hour" or "salary range:
+  $45,900 - $91,900". Bonuses, stipends and relocation amounts aren't counted.
 - **`locations`**: any mix of state codes (`CT`), metro areas (`Bay Area`, `Los Angeles`,
   `San Diego`, `Seattle`, `NYC`, `Boston`, `Chicago`, `Austin`, `DC`) and cities
   (`"Denver, CO"`). Metros include their suburbs, e.g. Sunnyvale counts as Bay Area and
@@ -200,8 +209,8 @@ skills:
 
 `C` doesn't match C++, C# or C-suite, and short names (C, Go, AWS) only match with that
 exact capitalization, so "go above and beyond" isn't Go. Postings are read from
-intern-list's qualifications and from Workday, Greenhouse, Lever, Ashby and Amazon job
-descriptions. The GitHub list has no descriptions, so its jobs show no skills.
+intern-list's qualifications and from every company site's job descriptions. The GitHub
+list has no descriptions, so its jobs show no skills.
 
 ## Run it locally
 
@@ -229,7 +238,8 @@ three days because those listings are often dated by day only. Company career si
 are read from their public Workday (early-career site where there is one), Greenhouse,
 Lever, Ashby and Oracle job feeds, and from Amazon's, Google's and Apple's own job
 search ([`jobscanner/sites.py`](jobscanner/sites.py)), including job descriptions for
-the skills highlight where the feed has them. Requests that hit a 5xx error are retried
+the skills highlight, the pay range and the clearance tags. A job's own page is only
+downloaded the first time the job is seen. Requests that hit a 5xx error are retried
 twice with backoff.
 
 The jobs it has already seen and emailed are stored in `seen.json` on the repo's `state`

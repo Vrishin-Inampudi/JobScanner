@@ -7,12 +7,14 @@
 #   (run `python -m jobscanner --show-lists` to see them all)
 # Jobs come from jobright.ai, which powers the site's job tables.
 # Optional per list: title_include (keep only titles containing any of these)
-# and title_exclude (drop titles containing any of these). Case-insensitive.
+# and title_exclude (drop titles containing any of these). Case-insensitive, and matched from
+# the start of a word: "cyber" matches "Cybersecurity", but "noc" doesn't match "Innocent".
 
 lists:
   - key: cs
   - key: swe
     title_include: [network engineer, networking, network security, network software, network infrastructure, noc]
+    title_exclude: [neural network]
   - key: eng
     title_include: [network engineer, networking, network security, network infrastructure, noc]
     title_exclude: [electrical, transmission, distribution, power, utility]
@@ -22,7 +24,7 @@ lists:
   - key: github
     repo: SimplifyJobs/Summer2027-Internships
     title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team]
-    title_exclude: [physical security, social security]
+    title_exclude: [physical security, social security, neural network]
 
 # Check top companies' own career sites too: jobs appear there before aggregators copy
 # them. Sites only say which day a job went up, so the first check of a new site just
@@ -30,7 +32,7 @@ lists:
 company_sites:
   title_require: [intern, co-op, summer analyst]   # banks call interns "summer analysts"
   title_include: [security, cyber, network, infosec, threat, vulnerability, identity, soc analyst, incident response, penetration, red team, firewall]
-  title_exclude: [physical security, social security, supply chain, business network]
+  title_exclude: [physical security, social security, supply chain, business network, neural network]
   sites:
     # Security and networking
     - {company: Palo Alto Networks, workday: "https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers"}
@@ -93,7 +95,7 @@ company_sites:
     - {company: Scale AI, greenhouse: scaleai}
     - {company: Databricks, greenhouse: databricks}
     - {company: Snowflake, ashby: snowflake}
-    - {company: Shield AI, ashby: shieldai}
+    - {company: Shield AI, lever: shieldai}
     - {company: Saronic, ashby: saronic}
     - {company: Waymo, greenhouse: waymo}
     - {company: Zoox, lever: zoox}
@@ -154,6 +156,7 @@ company_sites:
 eligibility:
   graduation: 2028-05     # your graduation (YYYY-MM): skips roles for other grad classes
   skip_phd_only: true
+  skip_grad_level: true   # also skip roles for graduate students: "Grad Intern", "(Masters/PhD)", "MBA Intern"
 
 # Only consider jobs posted within this many hours. Each email still only contains jobs
 # not emailed before, and each run also looks back past the previous run, so this only
