@@ -10,6 +10,7 @@ beyond "a project was sent": it is all derived from your resume, and the repo ma
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from dataclasses import dataclass, field
@@ -38,14 +39,18 @@ MAX_TRIES_PER_DAY = 3
 TRUSTED_HOSTS = (
     "rfc-editor.org", "ietf.org", "nist.gov", "owasp.org", "mitre.org", "cisa.gov", "docs.python.org", "kernel.org",
     "man7.org", "developer.mozilla.org", "learn.microsoft.com", "docs.aws.amazon.com", "cloud.google.com", "kubernetes.io",
-    "docker.com", "hashicorp.com", "ansible.com", "cisco.com", "juniper.net", "arista.com", "paloaltonetworks.com",
+    "docs.docker.com", "hashicorp.com", "ansible.com", "cisco.com", "juniper.net", "arista.com", "paloaltonetworks.com",
     "fortinet.com", "suricata.io", "zeek.org", "wireshark.org", "nmap.org", "containerlab.dev", "frrouting.org",
     "elastic.co", "splunk.com", "grafana.com", "prometheus.io", "wireguard.com", "openssl.org", "debian.org", "ubuntu.com",
-    "redhat.com", "github.com", "readthedocs.io",
-)
+    "redhat.com",
+)   # no sites where anyone can publish (code hosts, doc hosts): an address there proves nothing
 MAX_URL = 200
 WARNING = "The commands in this guide were written by AI. Read each one before you run it."
-_URL = re.compile(r"https?://[^\s\"'<>)\]]+", re.I)
+_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>)\]]+", re.I)          # any scheme, so git+https:// and ftp:// count too
+_FETCHER = re.compile(r"\b(curl|wget|invoke-webrequest|invoke-restmethod|iwr|irm|scp|sftp|ftp|tftp|rsync|git\s+(?:clone|pull|fetch|remote\s+add|submodule\s+add))\b", re.I)
+_HOSTLIKE = re.compile(r"^(?:[\w.-]+@)?((?:[a-z0-9-]+\.)+[a-z0-9-]+)(?:[:/].*)?$", re.I)
+_FILE_ENDINGS = {"sh", "yml", "yaml", "json", "txt", "conf", "cfg", "py", "log", "pcap", "rules", "tar", "gz", "tgz", "zip", "deb",
+                 "rpm", "pem", "crt", "key", "html", "md", "toml", "ini", "tf", "csv", "xml", "ps1", "bak", "out", "img", "iso"}
 _PIPE_TO_SHELL = re.compile(r"\|\s*(sudo\s+)?(ba|z|da|k)?sh\b|\b(ba|z|da|k)?sh\s+-c\s+[\"']?\s*\$\(\s*(curl|wget)|<\(\s*(curl|wget)"
                             r"|\b(iex|invoke-expression)\b|\|\s*(sudo\s+)?python[0-9.]*\b", re.I)
 
@@ -59,6 +64,62 @@ def trusted_url(url: str) -> bool:
                     and any(host == h or host.endswith("." + h) for h in TRUSTED_HOSTS))
     except ValueError:
         return False
+
+
+def _in_lab(host: str) -> bool:
+    """A machine inside the lab: localhost, a private address, or a bare name with no dots."""
+    host = host.strip("[]").lower()
+    if host == "localhost" or (host and "." not in host and ":" not in host):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return (ip.is_private or ip.is_loopback) and not ip.is_link_local
+    except ValueError:
+        return False
+
+
+def risks(text: str) -> list[str]:
+    """What's unsafe about a piece of guide text: where it reaches on the network, and how.
+
+    Any address must be a trusted documentation site or a machine inside the lab, whatever its
+    scheme and whether or not it has one; and a download is never piped into a shell.
+    """
+    text, found = str(text or ""), []
+    if _PIPE_TO_SHELL.search(text):
+        found.append("pipes a download into a shell; install with a package manager instead")
+    targets = [u.rstrip(".,;") for u in _URL.findall(text)]
+    ok = True
+    for u in targets:
+        try:
+            host = urlsplit(u).hostname or ""
+        except ValueError:
+            host = ""
+        ok = ok and (trusted_url(u) or (bool(host) and _in_lab(host)))
+    # After a download tool, an address may come with no scheme at all (git@host:repo, host/path).
+    for line in text.splitlines():
+        tool = _FETCHER.search(line)
+        for token in (line[tool.end():].split() if tool else []):
+            token = token.strip("\"'`;,()")
+            m = None if "://" in token or token.startswith("-") else _HOSTLIKE.match(token)
+            if m and not _in_lab(m.group(1)):
+                bare_file = token == m.group(1) and token.rsplit(".", 1)[-1].lower() in _FILE_ENDINGS
+                ok = ok and bare_file
+    if not ok:
+        found.append("reaches a web address that isn't a well-known official site or a machine in the lab; use the package "
+                     "manager, or name the file to create instead")
+    return found
+
+
+def _strings(value):
+    """Every piece of text anywhere inside a guide."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
 
 
 # A step must open with an action verb. These openers mean it doesn't.
@@ -293,12 +354,7 @@ def problems(guide: dict) -> list[str]:
                 found.append(f"step {n} has {len(words)} words; the limit is {MAX_STEP_WORDS}")
             if re.search(r"\b(and )?then\b", str(s.get("text", "")), re.I):
                 found.append(f"step {n} holds two tasks ('then'); split it")
-            written = " ".join(str(s.get(k) or "") for k in ("text", "command", "expect", "if_not"))
-            if _PIPE_TO_SHELL.search(written):
-                found.append(f"step {n} pipes a download into a shell; install with a package manager instead")
-            if any(not trusted_url(u.rstrip(".,;")) for u in _URL.findall(written)):
-                found.append(f"step {n} uses a web address that isn't a well-known official site; use the package manager "
-                             "or name the file to create instead")
+            found += [f"step {n} {risk}" for risk in risks("\n".join(_strings(s)))]
         if not str(steps[-1].get("expect", "")).strip():
             found.append(f"part {pi} must end with a check step that has 'expect'")
     shown = sum(1 for s in _steps(guide) if has_diagram(s.get("diagram")) or str(s.get("command", "")).strip())
@@ -306,6 +362,12 @@ def problems(guide: dict) -> list[str]:
         found.append(f"only {shown} of {n} steps have a diagram or command; at least one in three must")
     if not guide.get("resume_lines"):
         found.append("the guide has no resume lines")
+    # The same safety rules hold for every other piece of text in the guide (titles, pitfalls,
+    # resume lines...). Reading links are left out here: check_links vets those one by one.
+    rest = {k: v for k, v in guide.items() if k != "parts"}
+    rest["reading"] = [r.get("title", "") for r in guide.get("reading") or [] if isinstance(r, dict)]
+    rest["part titles"] = [part.get("title", "") for part in parts]
+    found += [f"outside the steps, the guide {risk}" for risk in dict.fromkeys(r for text in _strings(rest) for r in risks(text))]
     return found
 
 

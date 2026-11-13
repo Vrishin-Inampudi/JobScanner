@@ -177,8 +177,10 @@ scanner, not by the model. Security projects stay inside a lab the guide has you
 
 Job postings are text from the public web, so nothing the model writes from them is
 trusted blindly. Reading links are kept, and checked, only on a fixed list of well-known
-documentation sites (`TRUSTED_HOSTS` in `jobscanner/projects.py`); a guide whose commands
-download from anywhere else, or pipe a download into a shell, is rejected. Every guide
+documentation sites (`TRUSTED_HOSTS` in `jobscanner/projects.py`); a guide that points
+anywhere else (other than machines inside its own lab), or pipes a download into a shell,
+is rejected, wherever in the guide that appears. Sites where anyone can publish, such as
+code hosts, are deliberately not on the list, so tools are installed with a package manager. Every guide
 still says its commands were written by AI: read each one before you run it.
 
 Like fit scores, the guide comes from your resume, so it goes only to your email and your
