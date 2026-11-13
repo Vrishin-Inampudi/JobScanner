@@ -184,6 +184,16 @@ digest_hour: 8
 weekly_summary: {day: sunday, hour: 18}
 follow_up_after_days: 10   # applications this old with no news are listed in the summary
 
+# One project to build a week (Eastern time), chosen from what the jobs you marked Applied
+# ask for that your resume doesn't yet prove. The email comes with step-by-step instructions
+# as a PDF and a Word file, a private link to them, and a file to hand an AI assistant.
+# Needs the tracker and the two AI secrets (see the README). Leave it out to turn it off.
+projects:
+  day: sunday
+  hour: 18
+  min_applied: 3       # wait until you've applied to at least this many jobs
+  lookback_days: 120   # only count applications this recent
+
 # Resume fit scores and drafts, written by Claude. This only runs when the ANTHROPIC_API_KEY
 # and RESUME_TEXT secrets are set (see the README). Each new match gets a 0-100 fit score
 # and a one-line reason; the best fits also get a cover-letter draft attached to the email.

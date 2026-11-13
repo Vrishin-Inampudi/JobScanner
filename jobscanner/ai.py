@@ -102,7 +102,9 @@ class Assistant:
         return [{"type": "text", "text": instructions},
                 {"type": "text", "text": f"<resume>\n{self.resume}\n</resume>", "cache_control": {"type": "ephemeral"}}]
 
-    def _call(self, what: str, p: Posting, make):
+    def _call(self, what: str, p, make):
+        """Run one request; ``p`` is a posting, or a plain label for the log."""
+        label = p.title if isinstance(p, Posting) else str(p)
         if self.broken:
             return None
         try:
@@ -116,13 +118,13 @@ class Assistant:
             log.warning("AI %s is off for this run: rate limited", what)
             return None
         except anthropic.APIStatusError as e:
-            log.warning("AI %s failed for '%s' (%s): %s", what, p.title, e.status_code, e.message)
+            log.warning("AI %s failed for '%s' (%s): %s", what, label, e.status_code, e.message)
             return None
         except anthropic.APIConnectionError as e:
-            log.warning("AI %s failed for '%s': %s", what, p.title, e)
+            log.warning("AI %s failed for '%s': %s", what, label, e)
             return None
         if response.stop_reason != "end_turn":   # refusal, or cut off at max_tokens
-            log.warning("AI %s for '%s' stopped early (%s)", what, p.title, response.stop_reason)
+            log.warning("AI %s for '%s' stopped early (%s)", what, label, response.stop_reason)
             return None
         return next((b.text for b in response.content if b.type == "text"), None)
 
@@ -153,6 +155,28 @@ class Assistant:
             messages=[{"role": "user", "content": _posting_block(p)}],
             output_config={"effort": "medium"},
         ))
+
+
+    def structured(self, what: str, instructions: str, content: str, schema: dict, max_tokens: int = 32000) -> dict | None:
+        """One long request on the draft model whose reply must fit ``schema``; None if it couldn't be had.
+
+        Streamed, because a whole project guide takes longer than a plain request may wait.
+        """
+        def make():
+            with self.client.messages.stream(
+                model=self.cfg.draft_model,
+                max_tokens=max_tokens,
+                thinking={"type": "adaptive"},
+                system=self._system(instructions),
+                messages=[{"role": "user", "content": content}],
+                output_config={"format": {"type": "json_schema", "schema": schema}},
+            ) as stream:
+                return stream.get_final_message()
+        try:
+            data = json.loads(self._call(what, what, make) or "")
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
 
 
 def from_env(cfg: AIConfig | None = None, env=os.environ) -> Assistant | None:

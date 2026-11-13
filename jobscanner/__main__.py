@@ -1,6 +1,7 @@
 """Check intern-list.com and email new qualifying internships.
 
 Usage: python -m jobscanner [--config config.yaml] [--state state/seen.json] [--dry-run] [--preview] [--test] [--show-lists]
+                            [--project-preview]
 """
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from . import ai, emailer, notify, sites, source, tracker
+from pathlib import Path
+
+from . import ai, emailer, guide, notify, projects, sites, source, tracker
 from .config import load_config
 from .filters import Match, evaluate, rank
 from .state import State
@@ -195,6 +198,13 @@ def run(
         if not failures:
             state.last_run_at = now
         state.save(state_path)
+        # The weekly project guide comes last, after everything above is safely saved: writing
+        # one takes minutes, and nothing about the alerts should depend on it finishing.
+        if cfg.projects and _project_due(cfg.projects, state, today):
+            if assistant == "auto":
+                assistant = ai.from_env(cfg.ai)
+            _project(cfg.projects, state, session, sender, assistant, now, today)
+            state.save(state_path)
 
     for f in site_trouble:
         log.warning("%s (checking again next run)", f)
@@ -220,6 +230,88 @@ def _assess(matches: list[Match], assistant, cfg: ai.AIConfig, state: State, tod
         written += bool(m.draft)
     state.drafts = {"on": today, "count": used + written}
     log.info("AI scored %d of %d matches and wrote %d drafts", scored, len(matches), written)
+
+
+def _project_due(pc: projects.ProjectsConfig, state: State, today: datetime) -> bool:
+    day = today.date().isoformat()
+    tried = state.project if state.project.get("on") == day else {}
+    return (today.weekday() == pc.day and today.hour >= pc.hour and not tried.get("sent")
+            and tried.get("tries", 0) < projects.MAX_TRIES_PER_DAY)
+
+
+def _project(pc: projects.ProjectsConfig, state: State, session, sender, assistant, now: datetime, today: datetime) -> None:
+    """Send this week's project guide if it's due. Trouble is logged and skipped: alerts matter more.
+
+    Nothing about the project is logged or kept in state except that one was sent; it comes from
+    your resume, and both the logs and the state file may be public.
+    """
+    if not _project_due(pc, state, today):
+        return
+    day = today.date().isoformat()
+    tries = state.project.get("tries", 0) if state.project.get("on") == day else 0
+    state.project = {"on": day, "tries": tries + 1, "sent": False}
+    try:
+        if not isinstance(assistant, ai.Assistant):
+            log.info("project guide: needs the ANTHROPIC_API_KEY and RESUME_TEXT secrets; skipped")
+            state.project["tries"] = projects.MAX_TRIES_PER_DAY
+            return
+        past = tracker.guides(session)
+        if past is None:
+            log.info("project guide: needs the tracker (TRACKER_URL, with the current tracker/Code.gs); skipped")
+            return
+        jobs = projects.applied_jobs(tracker.load(session, full=True), now, pc.lookback_days)
+        if len(jobs) < pc.min_applied:
+            log.info("project guide: %d applied-to jobs, needs %d; skipped this week", len(jobs), pc.min_applied)
+            state.project["tries"] = projects.MAX_TRIES_PER_DAY
+            return
+        project = projects.build(session, assistant, jobs, [g["title"] for g in past])
+        if not project:
+            log.warning("project guide: couldn't be written this time")
+            return
+        guide_id = project.guide_id(day)
+        link = tracker.guide_url(guide_id) if tracker.push_guide(session, guide_id, project.guide) else ""
+        files, picture = guide.files(project), guide.picture(project.guide.get("diagram"))
+        subject, text, html_body = emailer.render_project(project, link or "", bool(picture), [name for name, _ in files])
+        sender(subject, text, html_body, attachments=files, inline=[(emailer.MAIN_PICTURE, picture)] if picture else [])
+        state.project["sent"] = True
+        log.info("sent the weekly project guide")
+    except Exception as e:  # noqa: BLE001 - never let this stop the alerts; the message could quote the guide
+        log.warning("project guide: failed (%s)", type(e).__name__)
+
+
+def project_preview(config_path: str, out_dir: str = "project-preview", session=None, assistant="auto", now: datetime | None = None) -> int:
+    """Write a project email and its files to a folder, sending nothing and saving nothing.
+
+    With the Claude and tracker secrets set it builds a real one from your applied-to jobs;
+    without them it shows the built-in sample, so the look can still be checked.
+    """
+    cfg = load_config(config_path)
+    pc, now = cfg.projects or projects.ProjectsConfig(), now or datetime.now(timezone.utc)
+    session = session or source.new_session()
+    assistant = ai.from_env(cfg.ai) if assistant == "auto" else assistant
+    project, past = None, tracker.guides(session) if assistant else None
+    if assistant and past is not None:
+        jobs = projects.applied_jobs(tracker.load(session, full=True), now, pc.lookback_days)
+        if len(jobs) >= pc.min_applied:
+            project = projects.build(session, assistant, jobs, [g["title"] for g in past])
+        else:
+            log.info("only %d applied-to jobs (needs %d)", len(jobs), pc.min_applied)
+    sample = project is None
+    if sample:
+        log.info("showing the built-in sample project (a real one needs the Claude and tracker secrets, and applied-to jobs)")
+        project = projects.SAMPLE
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    files, picture = guide.files(project), guide.picture(project.guide.get("diagram"))
+    subject, text, html_body = emailer.render_project(project, "", bool(picture), [name for name, _ in files], sample=sample)
+    if picture:
+        (out / "main.png").write_bytes(picture)
+    (out / "email.html").write_text(html_body.replace(f"cid:{emailer.MAIN_PICTURE}", "main.png"))
+    (out / "email.txt").write_text(f"Subject: {subject}\n\n{text}")
+    for name, data in files:
+        (out / name).write_bytes(data)
+    log.info("wrote the email and %d files to %s/", len(files), out)
+    return 0
 
 
 def _week(sent: list[dict], marks: tracker.Marks, now: datetime, follow_up_days: int):
@@ -311,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--test", action="store_true",
                     help=f"send a [Test] email of matches from the last {TEST_WINDOW_HOURS}h; doesn't touch state")
     ap.add_argument("--show-lists", action="store_true", help="print the list keys intern-list.com offers")
+    ap.add_argument("--project-preview", action="store_true",
+                    help="write this week's project email and its files to project-preview/ without sending anything")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -319,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{key:8} {category}")
         return 0
     try:
+        if args.project_preview:
+            return project_preview(args.config)
         return run(args.config, args.state, dry_run=args.dry_run or args.preview, preview=args.preview, test=args.test)
     except Exception as e:
         log.error("%s: %s", type(e).__name__, e)

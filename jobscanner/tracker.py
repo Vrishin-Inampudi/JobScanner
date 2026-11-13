@@ -14,6 +14,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+import json
 from datetime import datetime, timezone
 from urllib.parse import urlencode, urlsplit
 
@@ -23,6 +24,7 @@ log = logging.getLogger("jobscanner")
 
 APPLIED, SKIP = "applied", "not interested"
 INTERVIEW, OFFER, REJECTED = "interview", "offer", "rejected"
+POSTING_CHARS = 6000   # of each match's text kept in the Sheet, so project ideas can see what a job asked for
 
 
 def role_key(company: str, title: str) -> str:
@@ -38,7 +40,7 @@ def role_key(company: str, title: str) -> str:
 class Marks:
     jobs: dict[str, str] = field(default_factory=dict)   # job key -> status
     muted: set[str] = field(default_factory=set)         # role keys marked not interested
-    rows: list[dict] = field(default_factory=list)       # each marked job: status, company, title, link, marked
+    rows: list[dict] = field(default_factory=list)       # each marked job: status, company, title, link, marked, posting
     loaded: bool = False                                 # the Sheet was read (so "nothing marked" is real)
 
     def with_status(self, status: str) -> list[dict]:
@@ -71,14 +73,17 @@ def links(p: Posting, env=os.environ) -> dict[str, str] | None:
             "skip": f"{url}?{urlencode({**base, 'a': 'skip'})}"}
 
 
-def load(session, env=os.environ) -> Marks:
-    """Read your marks from the Sheet. Problems are logged, never fatal: alerts matter more."""
+def load(session, env=os.environ, full: bool = False) -> Marks:
+    """Read your marks from the Sheet. Problems are logged, never fatal: alerts matter more.
+
+    ``full`` also asks for each job's saved posting text (only project ideas need it).
+    """
     cfg = _config(env)
     if not cfg:
         return Marks()
     url, token = cfg
     try:
-        resp = session.get(url, params={"t": token, "a": "list"}, timeout=TIMEOUT)
+        resp = session.get(url, params={"t": token, "a": "list", **({"full": "1"} if full else {})}, timeout=TIMEOUT)
         resp.raise_for_status()
         rows = resp.json().get("rows") or []
     except Exception as e:  # noqa: BLE001 - tracker trouble mustn't stop the alerts
@@ -93,7 +98,7 @@ def load(session, env=os.environ) -> Marks:
             marks.muted.add(role)
         marks.rows.append({"status": status, "id": job_id, "company": str(row.get("company", "")),
                            "title": str(row.get("title", "")), "link": str(row.get("link", "")),
-                           "marked": _when(row.get("marked"))})
+                           "marked": _when(row.get("marked")), "posting": str(row.get("posting") or "")})
     return marks
 
 
@@ -122,7 +127,8 @@ def push(session, matches, now: datetime, env=os.environ) -> None:
              "found": now.isoformat(), "company": m.posting.company, "title": m.posting.title,
              "location": m.posting.location.replace("\n", "; "), "pay": m.hourly, "fit": m.fit, "why": m.fit_why,
              "tags": ", ".join(m.flags), "top": bool(m.priority), "source": m.posting.source,
-             "link": m.posting.apply_url, "draft": m.draft} for m in matches]
+             "link": m.posting.apply_url, "draft": m.draft,
+             "posting": f"{m.posting.qualifications}\n{m.posting.description}".strip()[:POSTING_CHARS]} for m in matches]
     try:
         resp = session.post(url, json={"t": token, "a": "matches", "rows": rows}, timeout=TIMEOUT)
         resp.raise_for_status()
@@ -130,3 +136,46 @@ def push(session, matches, now: datetime, env=os.environ) -> None:
             raise ValueError(str(resp.json().get("error") or "unexpected reply; redeploy tracker/Code.gs"))
     except Exception as e:  # noqa: BLE001 - dashboard trouble mustn't stop the alerts
         log.warning("couldn't update the dashboard: %s", e if isinstance(e, ValueError) else type(e).__name__)
+
+
+def _post(session, cfg, body: dict) -> dict:
+    resp = session.post(cfg[0], json={"t": cfg[1], **body}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    reply = resp.json()
+    if not reply.get("ok"):
+        raise ValueError(str(reply.get("error") or "unexpected reply; redeploy tracker/Code.gs"))
+    return reply
+
+
+def guides(session, env=os.environ) -> list[dict] | None:
+    """Project guides already sent, as {sent, title}; None if the Sheet can't say (so none is written)."""
+    cfg = _config(env)
+    if not cfg:
+        return None
+    try:
+        resp = session.get(cfg[0], params={"t": cfg[1], "a": "guides"}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        rows = resp.json()["guides"]   # an older script answers without this: redeploy tracker/Code.gs
+        return [{"sent": str(r.get("sent", "")), "title": str(r.get("title", ""))} for r in rows]
+    except Exception as e:  # noqa: BLE001
+        log.warning("couldn't read past project guides (is tracker/Code.gs up to date?): %s", type(e).__name__)
+        return None
+
+
+def push_guide(session, guide_id: str, guide: dict, env=os.environ) -> bool:
+    """Save a guide to the Sheet so its private page works; False if it couldn't be saved."""
+    cfg = _config(env)
+    if not cfg:
+        return False
+    try:
+        _post(session, cfg, {"a": "guide", "id": guide_id, "title": str(guide.get("title", "")),
+                             "json": json.dumps(guide, separators=(",", ":"))})
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("couldn't save the project guide to the Sheet: %s", type(e).__name__)
+        return False
+
+
+def guide_url(guide_id: str, env=os.environ) -> str | None:
+    cfg = _config(env)
+    return f"{cfg[0]}?{urlencode({'t': cfg[1], 'a': 'guide', 'id': guide_id})}" if cfg else None

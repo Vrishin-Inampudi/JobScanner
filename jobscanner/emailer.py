@@ -364,7 +364,87 @@ def render_weekly(found: int, waiting: list[dict], follow_up: list[dict], counts
                                 sources=sources, dashboard=dashboard)
 
 
-def send(subject: str, text: str, html_body: str, attachments=(), env=os.environ) -> None:
+# The project email has its own look: black, large type, one idea per panel.
+P_BG, P_PANEL, P_TEXT, P_MUTED, P_BLUE, P_BUTTON, P_ORANGE = "#000000", "#1d1d1f", "#f5f5f7", "#86868b", "#2997ff", "#0071e3", "#ff9f0a"
+P_FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Helvetica,Arial,sans-serif"
+MAIN_PICTURE = "project-main"
+KIND = {"certification": "Certification", "topic": "Topic", "concept": "Concept"}
+
+
+def _panel(title: str, inner: str) -> str:
+    return (f'<tr><td style="padding:0 0 14px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+            f'<tr><td style="background:{P_PANEL};border-radius:18px;padding:22px 24px">'
+            f'<div style="font-size:19px;font-weight:700;color:{P_TEXT};margin:0 0 8px">{html.escape(title)}</div>'
+            f'<div style="font-size:15px;line-height:1.6;color:{P_TEXT}">{inner}</div></td></tr></table></td></tr>')
+
+
+def render_project(project, link: str = "", has_picture: bool = True, files=(), sample: bool = False) -> tuple[str, str, str]:
+    """The weekly project email: (subject, plain text, HTML). ``files`` are the attachment names.
+
+    Every count shown is worked out from your applied-to jobs, never taken from the model.
+    """
+    g, e = project.guide, html.escape
+    title, tagline = str(g.get("title") or ""), str(g.get("tagline") or "")
+    subject = ("[Sample] " if sample else "") + f"🛠 Project to build: {title}"
+    share = f"{len(project.roles)} of {project.total}"
+    facts = [(f"{g.get('hours')} hrs", "to finish")] if g.get("hours") else []
+    facts += [(share, "of your applications")] if project.total else []
+    facts += [(str(g.get("cost")), "cost")] if g.get("cost") else []
+    muted = lambda t: f'<span style="color:{P_MUTED}">{e(t)}</span>'
+    roles, more = project.roles[:6], len(project.roles) - 6
+    reading = [f'<a href="{e(r["url"], quote=True)}" style="color:{P_BLUE};text-decoration:none">{e(r["title"])} ›</a>'
+               if str(r.get("url") or "").startswith("https://") else e(r["title"]) for r in g.get("reading") or []]
+    also = [f'{e(a["name"])} {muted(KIND.get(a["kind"], "Topic").lower() + " · named in " + str(a["count"]) + " of your " + str(project.total) + " applications")}'
+            for a in project.also]
+    button = (f'<a href="{e(link, quote=True)}" style="display:inline-block;background:{P_BUTTON};color:#ffffff;border-radius:980px;'
+              f'padding:11px 22px;font-size:16px;text-decoration:none">Open the instructions</a>') if link else ""
+    cells = "".join(f'<td align="center" width="{100 // len(facts)}%" style="padding:0 6px"><div style="font-size:{26 if len(v) < 12 else 17}px;'
+                    f'font-weight:700;color:{P_TEXT}">{e(v)}</div><div style="font-size:13px;color:{P_MUTED}">{e(k)}</div></td>'
+                    for v, k in facts)
+    picture = (f'<tr><td align="center" style="padding:0 0 22px"><img src="cid:{MAIN_PICTURE}" width="520" alt="How the finished project fits together" '
+               f'style="display:block;width:100%;max-width:520px;height:auto;border:0"></td></tr>') if has_picture else ""
+    body = "".join([
+        _panel("What you build.", e(str(g.get("description") or ""))),
+        _panel("Roles this helps with.", "<br>".join(f"{e(r['company'])} {muted(r['title'])}" for r in roles)
+               + (f"<br>{muted(f'and {more} more')}" if more > 0 else "")) if roles else "",
+        _panel("What it proves.", e(project.proves)) if project.proves else "",
+        _panel("Read first if rusty.", "<br>".join(reading)) if reading else "",
+        _panel("Also worth your time.", "<br>".join(also)) if also else "",
+    ])
+    attached = f'Attached: {" · ".join(e(f) for f in files)}' if files else ""
+    page = f"""<!doctype html><html><head><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
+<body style="margin:0;padding:0;background:{P_BG}">
+<div style="display:none;max-height:0;overflow:hidden">{e(tagline)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{P_BG};font-family:{P_FONT}"><tr><td align="center" style="padding:0 16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
+<tr><td align="center" style="padding:52px 8px 34px">
+  <div style="font-size:13px;font-weight:600;color:{P_ORANGE}">{'Sample project' if sample else 'New project for you'}</div>
+  <div style="font-size:38px;line-height:1.08;font-weight:700;letter-spacing:-.02em;color:{P_TEXT};margin-top:8px">{e(title)}</div>
+  <div style="font-size:20px;line-height:1.3;color:{P_MUTED};margin-top:12px">{e(tagline)}</div>
+  {f'<div style="margin-top:26px">{button}</div>' if button else ''}
+</td></tr>
+{picture}
+<tr><td style="padding:0 0 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{cells}</tr></table></td></tr>
+{body}
+<tr><td style="padding:10px 8px 44px;font-size:13px;line-height:1.7;color:{P_MUTED}">{attached}{'<br>' if attached else ''}
+Chosen from the jobs you marked as applied. One project a week.</td></tr>
+</table></td></tr></table></body></html>"""
+    lines = [f"Project to build: {title}", tagline, "", str(g.get("description") or ""), ""]
+    lines += [f"{v} {k}" for v, k in facts] + [""]
+    lines += [f"Open the instructions: {link}", ""] if link else []
+    lines += ["Roles this helps with:"] + [f"- {r['company']}: {r['title']}" for r in roles] + [""] if roles else []
+    lines += ["What it proves:", project.proves, ""] if project.proves else []
+    lines += ["Read first if rusty:"] + [f"- {r['title']} {r.get('url') or ''}".rstrip() for r in g.get("reading") or []] + [""] if reading else []
+    lines += ["Also worth your time:"] + [f"- {KIND.get(a['kind'], 'Topic')}: {a['name']} (named in {a['count']} of your {project.total} applications)"
+                                          for a in project.also] if also else []
+    return subject, "\n".join(lines).rstrip() + "\n", page
+
+
+_FILE_TYPES = {"pdf": ("application", "pdf"), "md": ("text", "markdown"),
+               "docx": ("application", "vnd.openxmlformats-officedocument.wordprocessingml.document")}
+
+
+def send(subject: str, text: str, html_body: str, attachments=(), inline=(), env=os.environ) -> None:
     sender, password = env.get("GMAIL_ADDRESS"), env.get("GMAIL_APP_PASSWORD")
     if not sender or not password:
         raise EmailConfigError("set GMAIL_ADDRESS and GMAIL_APP_PASSWORD (see README) to send email")
@@ -374,8 +454,12 @@ def send(subject: str, text: str, html_body: str, attachments=(), env=os.environ
     msg["Subject"], msg["From"], msg["To"] = subject, sender, ", ".join(recipients)
     msg.set_content(text)
     msg.add_alternative(html_body, subtype="html")
+    for cid, png in inline:   # pictures shown in the HTML body
+        msg.get_payload()[-1].add_related(png, maintype="image", subtype="png", cid=f"<{cid}>")
     for filename, body in attachments:
-        msg.add_attachment(body.encode("utf-8"), maintype="text", subtype="plain", filename=filename)
+        maintype, subtype = _FILE_TYPES.get(filename.rsplit(".", 1)[-1].lower(), ("text", "plain"))
+        msg.add_attachment(body.encode("utf-8") if isinstance(body, str) else body, maintype=maintype, subtype=subtype,
+                           filename=filename)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60) as smtp:
         smtp.starttls()
         smtp.login(sender, password)

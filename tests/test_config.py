@@ -102,3 +102,22 @@ def test_new_site_kinds(tmp_path):
     specs = [s for s in load_config(cfg).lists if s.is_site]
     assert [(s.key, bool(s.smartrecruiters), bool(s.eightfold)) for s in specs] == [
         ("site:servicenow", True, False), ("site:netflix", False, True)]
+
+
+def test_projects_section(tmp_path):
+    import pytest
+    from jobscanner.config import load_config
+    from jobscanner.projects import ProjectsConfig
+    path = tmp_path / "c.yaml"
+    base = "lists:\n  - key: cs\n"
+    path.write_text(base)
+    assert load_config(path).projects is None                                   # left out: off
+    path.write_text(base + "projects: {day: Sunday, hour: 18}\n")
+    assert load_config(path).projects == ProjectsConfig(day=6, hour=18, min_applied=3, lookback_days=120)
+    path.write_text(base + "projects: {day: friday, hour: 9, min_applied: 5, lookback_days: 60}\n")
+    assert load_config(path).projects == ProjectsConfig(day=4, hour=9, min_applied=5, lookback_days=60)
+    for bad in ("{day: someday}", "{day: sunday, hour: 24}", "{day: sunday, min_applied: 0}", "{day: sunday, often: yes}",
+                "weekly", "{day: sunday, lookback_days: 1.5}", "{day: sunday, hour: true}"):
+        path.write_text(base + f"projects: {bad}\n")
+        with pytest.raises(ValueError, match="'projects' must look like"):
+            load_config(path)

@@ -10,6 +10,7 @@ import yaml
 
 from .ai import AIConfig
 from .filters import Criteria, parse_month
+from .projects import ProjectsConfig
 from .skills import Skills, skill
 
 BUILTIN_CAREERS = ("amazon", "google", "apple")  # sites.BUILTIN
@@ -63,6 +64,7 @@ class Config:
     ai: AIConfig = field(default_factory=AIConfig)  # resume fit scores and drafts (only with the AI secrets set)
     weekly_summary: tuple[int, int] | None = None  # (weekday 0=Mon, ET hour) for the weekly summary email
     follow_up_after_days: int = 10               # applications this old with no news are listed in the summary
+    projects: ProjectsConfig | None = None       # one project guide a week, from the jobs you applied to
 
 
 def load_config(path: str | Path) -> Config:
@@ -120,7 +122,8 @@ def load_config(path: str | Path) -> Config:
     return Config(lists=lists, criteria=criteria, max_age_hours=float(max_age),
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
                   check_every_minutes=check_every, digest_hour=digest, ai=_ai(path, raw.get("ai") or {}),
-                  weekly_summary=_weekly(path, raw.get("weekly_summary")), follow_up_after_days=follow_up)
+                  weekly_summary=_weekly(path, raw.get("weekly_summary")), follow_up_after_days=follow_up,
+                  projects=_projects(path, raw.get("projects")))
 
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -134,6 +137,22 @@ def _weekly(path, section) -> tuple[int, int] | None:
     if not isinstance(section, dict) or day not in DAYS or not (isinstance(hour, int) and 0 <= hour <= 23):
         raise ValueError(f"{path}: 'weekly_summary' must look like {{day: sunday, hour: 18}}, got {section!r}")
     return DAYS.index(day), hour
+
+
+def _projects(path, section) -> ProjectsConfig | None:
+    """``projects: {day: sunday, hour: 18, min_applied: 3, lookback_days: 120}``; leave it out to turn it off."""
+    if section is None:
+        return None
+    bad = ValueError(f"{path}: 'projects' must look like {{day: sunday, hour: 18}} (plus optional whole numbers "
+                     f"min_applied and lookback_days), got {section!r}")
+    if not isinstance(section, dict) or set(section) - {"day", "hour", "min_applied", "lookback_days"}:
+        raise bad
+    day, hour = str(section.get("day", "sunday")).lower(), section.get("hour", 18)
+    least, lookback = section.get("min_applied", 3), section.get("lookback_days", 120)
+    whole = lambda v, low: isinstance(v, int) and not isinstance(v, bool) and v >= low
+    if day not in DAYS or not (whole(hour, 0) and hour <= 23) or not whole(least, 1) or not whole(lookback, 1):
+        raise bad
+    return ProjectsConfig(day=DAYS.index(day), hour=hour, min_applied=least, lookback_days=lookback)
 
 
 def _ai(path, section: dict) -> AIConfig:

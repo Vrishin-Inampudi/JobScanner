@@ -6,3 +6,4 @@ __pycache__/
 .env
 state/
 .superpowers/
+project-preview/

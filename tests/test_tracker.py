@@ -100,3 +100,64 @@ def test_push_sends_matches_to_the_dashboard_and_never_fails_the_run():
             raise ConnectionError("down")
     tracker.push(Down(), [m], now, ENV)     # logged, not raised
     tracker.push(None, [m], now, {})        # not set up: nothing to do
+
+
+class Sheet:
+    """A fake web app: answers GETs by action and records POSTs."""
+
+    def __init__(self, gets=None, post=None, fail=False):
+        self.gets, self.post_reply, self.fail, self.asked, self.posted = gets or {}, post or {"ok": True}, fail, [], []
+
+    def get(self, url, params=None, timeout=None):
+        self.asked.append(params)
+        if self.fail:
+            raise OSError("https://script.google.com/secret-in-error")
+        return Resp(self.gets.get(params["a"], {}))
+
+    def post(self, url, json=None, timeout=None):
+        self.posted.append(json)
+        if self.fail:
+            raise OSError("https://script.google.com/secret-in-error")
+        return Resp(self.post_reply)
+
+
+def test_matches_are_pushed_with_trimmed_posting_text():
+    from datetime import datetime, timezone
+    from jobscanner.filters import Match
+    p = posting(company="NVIDIA", title="Security Intern", qualifications="Needs BGP.", description="d" * 9000)
+    sheet = Sheet()
+    tracker.push(sheet, [Match(posting=p, reasons=[], hourly=None, area=None, priority=None, size=None)], datetime(2026, 11, 1, tzinfo=timezone.utc), ENV)
+    text = sheet.posted[0]["rows"][0]["posting"]
+    assert text.startswith("Needs BGP.\nddd") and len(text) == tracker.POSTING_CHARS
+
+
+def test_full_load_asks_for_and_returns_posting_text():
+    sheet = Sheet({"list": {"rows": [{"status": "Applied", "id": "x/1", "role": "r", "company": "Cisco", "title": "Net",
+                                      "posting": "Needs 802.1X"}, {"status": "Offer", "id": "x/2"}]}})
+    marks = load(sheet, ENV, full=True)
+    assert sheet.asked[0] == {"t": "secret", "a": "list", "full": "1"}
+    assert [r["posting"] for r in marks.rows] == ["Needs 802.1X", ""]
+    load(sheet, ENV)
+    assert "full" not in sheet.asked[1]
+
+
+def test_guides_lists_past_titles_or_none_when_it_cannot_tell(caplog):
+    sheet = Sheet({"guides": {"guides": [{"sent": "2026-11-08T23:00:00Z", "title": "Earlier"}]}})
+    assert tracker.guides(sheet, ENV) == [{"sent": "2026-11-08T23:00:00Z", "title": "Earlier"}]
+    assert tracker.guides(Sheet({"guides": {"guides": []}}), ENV) == []
+    assert tracker.guides(Sheet({"guides": {"rows": []}}), ENV) is None        # an older script: no 'guides' in its reply
+    assert tracker.guides(Sheet(fail=True), ENV) is None and "secret-in-error" not in caplog.text
+    assert tracker.guides(sheet, {}) is None
+
+
+def test_guide_is_saved_as_json_and_linked(caplog):
+    sheet = Sheet()
+    assert tracker.push_guide(sheet, "2026-11-15-lab", {"title": "Lab", "parts": []}, ENV) is True
+    sent = sheet.posted[0]
+    assert sent["a"] == "guide" and sent["id"] == "2026-11-15-lab" and sent["title"] == "Lab" and sent["t"] == "secret"
+    assert sent["json"] == '{"title":"Lab","parts":[]}'
+    assert tracker.push_guide(Sheet(post={"ok": False, "error": "unknown action"}), "g", {}, ENV) is False
+    assert tracker.push_guide(Sheet(fail=True), "g", {}, ENV) is False and "secret-in-error" not in caplog.text
+    assert tracker.push_guide(sheet, "g", {}, {}) is False
+    q = parse_qs(urlsplit(tracker.guide_url("2026-11-15-lab", ENV)).query)
+    assert q == {"t": ["secret"], "a": ["guide"], "id": ["2026-11-15-lab"]} and tracker.guide_url("g", {}) is None

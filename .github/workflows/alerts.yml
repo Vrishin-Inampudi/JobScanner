@@ -20,7 +20,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25   # most runs take under a minute; the weekly project guide takes several
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +45,7 @@ jobs:
           TRACKER_URL: ${{ secrets.TRACKER_URL }}       # optional: application tracker (see README)
           TRACKER_TOKEN: ${{ secrets.TRACKER_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}   # optional: also post urgent matches to Discord
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}       # optional: resume fit scores and drafts
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}       # optional: resume fit scores, drafts, project guides
           RESUME_TEXT: ${{ secrets.RESUME_TEXT }}                   # ... your resume as plain text
       - name: Save seen postings
         if: always()      # a list that failed still lets the others' progress be kept

@@ -149,6 +149,45 @@ your resume, so read them before sending. Scores, reasons and drafts go only to 
 email and your private Sheet; they are never written to the state file on the repo. If the AI service has trouble, the alert still
 goes out, just without a score.
 
+### A project to build each week (optional)
+
+Once a week you get one **advanced project** to build, chosen from what the jobs you
+marked *Applied* ask for that your resume doesn't yet prove. The email has:
+
+- what you build, how long it takes and what it costs;
+- which of your applications it helps with, and what it proves;
+- reading to refresh the basics (only links that load are kept);
+- certifications, topics and concepts those postings also name;
+- the instructions as a **PDF** and a **Word file**, a private **link** to the same guide
+  served from your own Sheet, and a **Markdown file** to hand an AI assistant so it can
+  help without guessing.
+
+The instructions are numbered steps. Each one starts with an action verb, covers one task,
+and has a picture or the exact command where that removes guesswork. Every part ends with a
+check that says what you should see and what to do if you don't. The last page lists resume
+lines you can honestly write once you finish. A guide that breaks these rules is sent back
+once to be rewritten, and dropped if it still does.
+
+It needs all three of: the tracker (so it knows what you applied to), `ANTHROPIC_API_KEY`
+and `RESUME_TEXT`. Turn it on with `projects` in `config.yaml`. It waits until you've
+applied to `min_applied` jobs. From then on, each match's posting text is saved to your
+Sheet so the scanner knows what those jobs asked for; jobs you applied to before that are
+judged by title. Every count in the email ("4 of 9 applications") is worked out by the
+scanner, not by the model. Security projects stay inside a lab the guide has you build.
+
+Like fit scores, the guide comes from your resume, so it goes only to your email and your
+private Sheet. The state file records only that a project was sent, and the logs never
+name it. Writing one takes two requests to `claude-opus-5-5` a week.
+
+See what one looks like without sending anything:
+
+```bash
+.venv/bin/python -m jobscanner --project-preview   # writes project-preview/
+```
+
+With the secrets set in your shell it builds a real one from your applications; without
+them it writes a built-in sample.
+
 ## Change what it looks for
 
 Everything lives in [`config.yaml`](config.yaml), and no code changes are needed.
@@ -208,6 +247,8 @@ criteria:
   many jobs matched, what you applied to, the matches still waiting on you (newest
   first), and applications older than `follow_up_after_days` with no news. The counts of
   what you applied to need the tracker. Leave it out to turn it off.
+- **`projects`**: `{day: sunday, hour: 18}` sends one project to build a week (see above).
+  `min_applied` and `lookback_days` set how many recent applications it needs.
 - **`company_needs_location`**: when `true`, top-company and large-company matches must
   also be in your `locations`, remote, or posted without a specific city. Matches on pay
   alone can still be anywhere.

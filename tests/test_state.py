@@ -93,3 +93,13 @@ def test_v4_state_keeps_emailed_and_drops_seen_lists(tmp_path):
                              "last_run_at": "2026-11-02T10:00:00+00:00", "last_email_at": None}))
     s = State.load(p)
     assert s.lists == {} and s.emailed == {"x": "2026-10-30"} and s.last_run_at is not None
+
+
+def test_project_marker_round_trips(tmp_path):
+    from jobscanner.state import State
+    path = tmp_path / "seen.json"
+    s = State()
+    s.project = {"on": "2026-11-15", "tries": 1, "sent": True}
+    s.save(path)
+    assert State.load(path).project == {"on": "2026-11-15", "tries": 1, "sent": True}
+    assert State().project == {}
