@@ -17,7 +17,7 @@ from fpdf import FPDF
 from fpdf.enums import MethodReturnValue
 from PIL import Image, ImageDraw, ImageFont
 
-from .projects import Project, has_diagram
+from .projects import WARNING, Project, has_diagram
 
 MAX_NODES, MAX_LABEL = 12, 14
 DARK = {"bg": (0, 0, 0), "box": (29, 29, 31), "line": (110, 110, 115), "edge": (245, 245, 247), "text": (245, 245, 247), "hot": (48, 209, 88)}
@@ -199,13 +199,13 @@ def pdf(project: Project) -> bytes:
 
     # Cover
     doc.add_page()
-    doc.set_y(34)
+    doc.set_y(24)
     say("Project guide", 11, ORANGE, "B", "C")
     doc.ln(3)
     say(project.title, 30, style="B", align="C", h=12)
     doc.ln(3)
     say(g.get("tagline"), 14, MUTED, align="C", h=7)
-    doc.ln(10)
+    doc.ln(7)
     facts = [(f"{g.get('hours')} hrs", "to finish")] if g.get("hours") else []
     facts += [(f"{len(project.roles)} of {project.total}", "of your applications")] if project.total else []
     facts += [(str(g.get("cost")), "cost")] if g.get("cost") else []
@@ -224,6 +224,8 @@ def pdf(project: Project) -> bytes:
         doc.image(io.BytesIO(main), x=MARGIN + 15, y=doc.get_y(), w=width - 30)
         doc.set_y(doc.get_y() + h + 8)
     say(g.get("description"), 12, MUTED, h=6)
+    doc.ln(3)
+    say(WARNING, 10, ORANGE)
     doc.ln(6)
     if project.proves:
         bullets("What it proves", [(project.proves, "")])
@@ -309,6 +311,7 @@ def docx(project: Project) -> bytes:
         doc.add_picture(io.BytesIO(main), width=Inches(5.5))
     if g.get("description"):
         doc.add_paragraph(str(g["description"]))
+    doc.add_paragraph().add_run(WARNING).bold = True
     if project.proves:
         doc.add_heading("What it proves", level=2)
         doc.add_paragraph(project.proves)
@@ -366,7 +369,9 @@ def helper_md(project: Project) -> str:
              "- Keep to the guide's design. Don't skip ahead, swap tools or redesign the project unless they ask.",
              "- Explain why a fix works, briefly. They know the fundamentals; skip the basics.",
              "- Everything stays inside the lab this guide builds. Never suggest running any of it against systems they don't own.",
-             "- Don't write their resume lines for them until the project works.", "",
+             "- Don't write their resume lines for them until the project works.",
+             "- The guide's commands were written by AI. If one looks wrong or unsafe, say so before they run it.", "",
+             f"Note for the builder: {WARNING}", "",
              "## The project", "", str(g.get("description") or ""), "",
              f"- Time: about {g.get('hours')} hours", f"- Level: {g.get('difficulty')}", f"- Cost: {g.get('cost')}", ""]
     nodes = _nodes(g.get("diagram"))

@@ -373,7 +373,7 @@ const GUIDE = `<!doctype html><html><head><base target="_blank"><style>
   const nums = el('div', 'nums');
   [[(G.hours | 0) + ' hrs', 'to finish'], [G.difficulty, 'level'], [G.cost, 'cost']].forEach(([v, k]) => { if (v) { const d = el('div'); d.append(el('b', '', v), el('span', '', k)); nums.append(d); } });
   hero.append(nums); const main = picture(G.diagram, 520); if (main) hero.append(main);
-  m.append(hero, el('p', 'lead', G.description));
+  m.append(hero, el('p', 'lead', G.description), el('p', 'no', 'The commands in this guide were written by AI. Read each one before you run it.'));
   let n = 0;
   (G.parts || []).forEach((part, pi) => {
     m.append(el('div', 'part', 'Part ' + (pi + 1) + ' of ' + G.parts.length + (part.hours ? ' · about ' + part.hours + ' hours' : '')), el('h2', '', part.title));

@@ -408,7 +408,7 @@ def render_project(project, link: str = "", has_picture: bool = True, files=(), 
         _panel("Roles this helps with.", "<br>".join(f"{e(r['company'])} {muted(r['title'])}" for r in roles)
                + (f"<br>{muted(f'and {more} more')}" if more > 0 else "")) if roles else "",
         _panel("What it proves.", e(project.proves)) if project.proves else "",
-        _panel("Read first if rusty.", "<br>".join(reading)) if reading else "",
+        _panel("Read first if rusty.", "<br>".join(reading)) if reading else "",   # links were vetted by projects.check_links
         _panel("Also worth your time.", "<br>".join(also)) if also else "",
     ])
     attached = f'Attached: {" · ".join(e(f) for f in files)}' if files else ""
@@ -427,7 +427,8 @@ def render_project(project, link: str = "", has_picture: bool = True, files=(), 
 <tr><td style="padding:0 0 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{cells}</tr></table></td></tr>
 {body}
 <tr><td style="padding:10px 8px 44px;font-size:13px;line-height:1.7;color:{P_MUTED}">{attached}{'<br>' if attached else ''}
-Chosen from the jobs you marked as applied. One project a week.</td></tr>
+Chosen from the jobs you marked as applied. One project a week.<br>
+The guide's commands were written by AI. Read each one before you run it.</td></tr>
 </table></td></tr></table></body></html>"""
     lines = [f"Project to build: {title}", tagline, "", str(g.get("description") or ""), ""]
     lines += [f"{v} {k}" for v, k in facts] + [""]

@@ -49,7 +49,7 @@ def test_word_file_has_numbered_steps_and_pictures():
     assert "Zero-trust campus network" in text and "Part 2: Build the fabric (about 3 hours)" in text
     assert "4. Connect each leaf switch to both spine switches." in text and "12. Check that the sensor raised an alert." in text
     assert "You should see: Two rows say Established." in text and "sudo containerlab deploy -t fabric.yml" in text
-    assert "Example Networks: Network Security Intern" in text
+    assert "Example Networks: Network Security Intern" in text and "written by AI. Read each one" in text
     assert sum(n.startswith("word/media/") for n in zipfile.ZipFile(io.BytesIO(data)).namelist()) == 5
 
 
@@ -57,7 +57,7 @@ def test_ai_helper_lists_every_step_and_the_rules():
     md = guide.helper_md(SAMPLE)
     assert md.startswith("# AI helper: Zero-trust campus network")
     assert all(f"\n{n}. " in md for n in range(1, 13))
-    assert "Ask which step they are on" in md and "systems they don't own" in md
+    assert "written by AI" in md and "Ask which step they are on" in md and "systems they don't own" in md
     assert "spine 1 connects to leaf 1" in md and "- Expected: A version number prints." in md
     assert "**A BGP neighbor stays Idle.**" in md
     assert "Example Networks" not in md            # which jobs you applied to isn't the assistant's business

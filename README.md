@@ -175,6 +175,12 @@ Sheet so the scanner knows what those jobs asked for; jobs you applied to before
 judged by title. Every count in the email ("4 of 9 applications") is worked out by the
 scanner, not by the model. Security projects stay inside a lab the guide has you build.
 
+Job postings are text from the public web, so nothing the model writes from them is
+trusted blindly. Reading links are kept, and checked, only on a fixed list of well-known
+documentation sites (`TRUSTED_HOSTS` in `jobscanner/projects.py`); a guide whose commands
+download from anywhere else, or pipe a download into a shell, is rejected. Every guide
+still says its commands were written by AI: read each one before you run it.
+
 Like fit scores, the guide comes from your resume, so it goes only to your email and your
 private Sheet. The state file records only that a project was sent, and the logs never
 name it. Writing one takes two requests to `claude-opus-5-5` a week.
