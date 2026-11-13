@@ -49,8 +49,6 @@ WARNING = "The commands in this guide were written by AI. Read each one before y
 _URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>)\]]+", re.I)          # any scheme, so git+https:// and ftp:// count too
 _FETCHER = re.compile(r"\b(curl|wget|invoke-webrequest|invoke-restmethod|iwr|irm|scp|sftp|ftp|tftp|rsync|git\s+(?:clone|pull|fetch|remote\s+add|submodule\s+add))\b", re.I)
 _HOSTLIKE = re.compile(r"^(?:[\w.-]+@)?((?:[a-z0-9-]+\.)+[a-z0-9-]+)(?:[:/].*)?$", re.I)
-_OUTPUT_FLAGS = {"-o", "-O", "--output", "--output-document", "-outfile", "--output-file", "-w", "--write-out", "-d", "--data",
-                 "-H", "--header", "-A", "--user-agent", "-u", "--user"}   # the next word is not where the request goes
 _LAB_NAME = re.compile(r"^[a-z][a-z0-9-]*$")     # leaf1, sensor: starts with a letter, so never a number in disguise
 _PIPE_TO_SHELL = re.compile(r"\|\s*(sudo\s+)?(ba|z|da|k)?sh\b|\b(ba|z|da|k)?sh\s+-c\s+[\"']?\s*\$\(\s*(curl|wget)|<\(\s*(curl|wget)"
                             r"|\b(iex|invoke-expression)\b|\|\s*(sudo\s+)?python[0-9.]*\b", re.I)
@@ -98,22 +96,22 @@ def risks(text: str) -> list[str]:
         ok = ok and (trusted_url(u) or (bool(host) and _in_lab(host)))
     # An address may also come with no scheme at all (git@host:repo, host/path, host:port). Those
     # forms are checked wherever they appear. A bare dotted word could be a file (fabric.yml) or a
-    # site (evil.sh), so after a download tool it counts as a site unless written as a path (./x).
+    # site (evil.sh), so after a download tool it always counts as a site unless written as a path
+    # (./x). There is no exception for "the word after -o": which flags take a value differs from
+    # tool to tool (curl -O takes none), and guessing wrong would let a site through.
     for line in re.sub(r"[\\`]\r?\n\s*", " ", text).splitlines():       # a command continued over several lines is one
-        tool, previous = _FETCHER.search(line), ""
+        tool = _FETCHER.search(line)
         for found_at in re.finditer(r"\S+", line):
-            token, before = found_at.group().strip("\"'`;,()|&<>"), previous
-            previous = token
+            token = found_at.group().strip("\"'`;,()|&<>")
             if token.startswith("-") and "=" in token:                  # --flag=value: look at the value
-                before, token = token.split("=", 1)
-                token = token.strip("\"'")
+                token = token.split("=", 1)[1].strip("\"'")
             if "://" in token or token.startswith(("-", "./", "../", "/", "~", "$", "%", ".\\")):
                 continue
             m = _HOSTLIKE.match(token)
             if not m or _in_lab(m.group(1)) or any(m.group(1).lower() == h or m.group(1).lower().endswith("." + h) for h in TRUSTED_HOSTS):
                 continue
             addressed = token != m.group(1)                             # has a user, a port or a path: unmistakably an address
-            after_tool = bool(tool) and found_at.start() >= tool.end() and before.lower() not in {f.lower() for f in _OUTPUT_FLAGS}
+            after_tool = bool(tool) and found_at.start() >= tool.end()
             ok = ok and not (addressed or after_tool)
     if not ok:
         found.append("reaches a web address that isn't a well-known official site or a machine in the lab; use the package "
@@ -267,8 +265,8 @@ Instruction rules, which are strict:
 is a second step.
 - "command" holds the exact command or config snippet for the step, or is empty. Install tools \
 with the system's package manager or the tool's documented installer. Never pipe a download \
-into a shell, and never download from a site other than the tool's official one. Write local \
-files as paths (./fabric.yml), and use only machines the guide creates, by lab name or private address.
+into a shell, and never download from a site other than the tool's official one. Always write \
+local files as paths (./fabric.yml, -o ./out.json), and use only machines the guide creates, by lab name or private address.
 - A check step says what to verify. Its "expect" says what the student should see, and its \
 "if_not" says which step to repeat or what to fix. Other steps leave both empty.
 - Every part ends with a check step.
