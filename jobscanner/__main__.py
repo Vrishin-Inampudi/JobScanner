@@ -1,6 +1,6 @@
 """Check intern-list.com and email new qualifying internships.
 
-Usage: python -m jobscanner [--config config.yaml] [--state state/seen.json] [--dry-run] [--preview] [--test] [--show-lists]
+Usage: python -m jobscanner [--config config.yaml] [--state state/seen.json] [--dry-run] [--preview] [--test] [--show-lists] [--paper-now]
                             [--project-preview] [--paper-preview]
 """
 
@@ -284,18 +284,19 @@ def _project(pc: projects.ProjectsConfig, state: State, session, sender, assista
         log.warning("project guide: failed (%s)", type(e).__name__)
 
 
-def _paper_due(pc: papers.PapersConfig, state: State, today: datetime) -> bool:
+def _paper_due(pc: papers.PapersConfig, state: State, today: datetime, force: bool = False) -> bool:
     tried = state.papers if state.papers.get("on") == today.date().isoformat() else {}
-    return (today.weekday() in pc.days and today.hour >= pc.hour and not tried.get("done")
-            and tried.get("tries", 0) < papers.MAX_TRIES_PER_DAY)
+    on_schedule = force or (today.weekday() in pc.days and today.hour >= pc.hour)
+    return on_schedule and not tried.get("done") and tried.get("tries", 0) < papers.MAX_TRIES_PER_DAY
 
 
-def _paper(pc: papers.PapersConfig, state: State, session, sender, reader, now: datetime, today: datetime) -> None:
+def _paper(pc: papers.PapersConfig, state: State, session, sender, reader, now: datetime, today: datetime,
+           force: bool = False) -> None:
     """Send a paper and its quiz if one is due. Trouble is logged and skipped: alerts matter more.
 
     ``reader`` is an assistant that holds no resume: these requests carry only the public paper.
     """
-    if not _paper_due(pc, state, today):
+    if not _paper_due(pc, state, today, force):
         return
     day, memory = today.date().isoformat(), state.papers
     tries = memory.get("tries", 0) if memory.get("on") == day else 0
@@ -332,6 +333,22 @@ def _paper(pc: papers.PapersConfig, state: State, session, sender, reader, now: 
         log.info("sent the paper '%s'", paper.id)
     except Exception as e:  # noqa: BLE001 - never let this stop the alerts
         log.warning("paper: failed (%s)", type(e).__name__)
+
+
+def paper_now(config_path: str, state_path: str, session=None, sender: Callable[..., None] = emailer.send,
+              reader="auto", now: datetime | None = None) -> int:
+    """Send one paper right now, whatever the day, and remember it so it isn't sent again."""
+    cfg = load_config(config_path)
+    if not cfg.papers:
+        log.error("papers: not set up in %s", config_path)
+        return 1
+    now = now or datetime.now(timezone.utc)
+    state = State.load(state_path)
+    reader = ai.without_resume(cfg.ai) if reader == "auto" else reader
+    _paper(cfg.papers, state, session or source.new_session(), sender, reader, now,
+           now.astimezone(emailer.DISPLAY_TZ), force=True)
+    state.save(state_path)
+    return 0 if state.papers.get("done") else 1
 
 
 def paper_preview(config_path: str, out_dir: str = "paper-preview", session=None, reader="auto", now: datetime | None = None) -> int:
@@ -488,6 +505,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--show-lists", action="store_true", help="print the list keys intern-list.com offers")
     ap.add_argument("--paper-preview", action="store_true",
                     help="write the next paper email and quiz to paper-preview/ without sending anything")
+    ap.add_argument("--paper-now", action="store_true",
+                    help="send one paper and its quiz right now, whatever the day (a real send; uses the API key)")
     ap.add_argument("--project-preview", action="store_true",
                     help="write this week's project email and its files to project-preview/ without sending anything")
     args = ap.parse_args(argv)
@@ -502,6 +521,8 @@ def main(argv: list[str] | None = None) -> int:
             return project_preview(args.config)
         if args.paper_preview:
             return paper_preview(args.config)
+        if args.paper_now:
+            return paper_now(args.config, args.state)
         return run(args.config, args.state, dry_run=args.dry_run or args.preview, preview=args.preview, test=args.test)
     except Exception as e:
         log.error("%s: %s", type(e).__name__, e)

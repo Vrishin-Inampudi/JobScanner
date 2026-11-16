@@ -9,6 +9,10 @@ on:
         description: "Send a [Test] email of matches from the last 24h (doesn't change what's been seen)"
         type: boolean
         default: false
+      paper:
+        description: "Send one research paper and its quiz now, whatever the day (a real email; uses the Anthropic API)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write         # to save seen postings to the `state` branch
@@ -37,7 +41,7 @@ jobs:
           fi
           cp state/seen.json "$RUNNER_TEMP/seen.before" 2>/dev/null || true
       - name: Check for new internships
-        run: python -m jobscanner ${{ inputs.test && '--test' || '' }}
+        run: python -m jobscanner ${{ inputs.paper && '--paper-now' || inputs.test && '--test' || '' }}
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

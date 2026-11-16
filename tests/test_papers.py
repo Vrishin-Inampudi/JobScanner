@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from jobscanner import emailer, papers, tracker
-from jobscanner.__main__ import paper_preview, run
+from jobscanner.__main__ import paper_now, paper_preview, run
 from jobscanner.ai import Assistant
 from jobscanner.papers import (LABS, READING_LIST, SAMPLE_PAPER, SAMPLE_QUIZ, Lab, Paper, fresh, lab_items, make_quiz,
                                parse_arxiv, parse_feed, parse_links, pick, problems, read, worthwhile)
@@ -433,3 +433,18 @@ def test_preview_builds_a_real_one_with_a_reader(tmp_path, paths, monkeypatch):
     out = tmp_path / "preview"
     paper_preview(paths[0], str(out), session=pdf_web(), reader=FakeReader(quiz=SAMPLE_QUIZ), now=NOW)
     assert "From your reading list" in (out / "email.html").read_text() and "Defeating Prompt Injections" in (out / "email.txt").read_text()
+
+
+def test_paper_now_sends_one_on_any_day_and_remembers_it(site, paths, monkeypatch):
+    setup(monkeypatch, paths)
+    outbox = Outbox()
+    monday = NOW - timedelta(days=2)                                                                          # not a paper day
+    run(*paths, session=pdf_web(), sender=outbox, now=monday, reader=FakeReader(quiz=SAMPLE_QUIZ), assistant=None)
+    assert outbox == []
+    assert paper_now(paths[0], paths[1], session=pdf_web(), sender=outbox, reader=FakeReader(quiz=SAMPLE_QUIZ), now=monday) == 0
+    assert outbox[-1]["subject"] == "📄 Paper to read: Defeating Prompt Injections by Design"
+    assert json.loads(Path(paths[1]).read_text())["papers"]["sent"] == ["core:camel", "arxiv:2503.18813"]
+    assert paper_now(paths[0], paths[1], session=pdf_web(), sender=outbox, reader=FakeReader(quiz=SAMPLE_QUIZ), now=monday) == 0
+    assert len(outbox) == 1                                                                                   # that day's slot is used
+    Path(paths[0]).write_text(CONFIG)
+    assert paper_now(paths[0], paths[1], session=pdf_web(), sender=outbox, reader=FakeReader(quiz=SAMPLE_QUIZ), now=monday) == 1
