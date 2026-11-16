@@ -179,3 +179,28 @@ def push_guide(session, guide_id: str, guide: dict, env=os.environ) -> bool:
 def guide_url(guide_id: str, env=os.environ) -> str | None:
     cfg = _config(env)
     return f"{cfg[0]}?{urlencode({'t': cfg[1], 'a': 'guide', 'id': guide_id})}" if cfg else None
+
+
+def push_paper(session, paper_id: str, title: str, link: str, source: str, quiz: dict, env=os.environ) -> bool:
+    """Save a paper and its quiz to the Sheet so the quiz page works; False if it couldn't be saved."""
+    cfg = _config(env)
+    if not cfg:
+        return False
+    try:
+        _post(session, cfg, {"a": "paper", "id": paper_id, "title": title, "link": link, "source": source,
+                             "json": json.dumps(quiz, separators=(",", ":"))})
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("couldn't save the paper quiz to the Sheet (is tracker/Code.gs up to date?): %s", type(e).__name__)
+        return False
+
+
+def quiz_url(paper_id: str, env=os.environ) -> str | None:
+    cfg = _config(env)
+    return f"{cfg[0]}?{urlencode({'t': cfg[1], 'a': 'quiz', 'id': paper_id})}" if cfg else None
+
+
+def papers_url(env=os.environ) -> str | None:
+    """Your private page of every paper sent, with quiz scores; None if the tracker isn't set up."""
+    cfg = _config(env)
+    return f"{cfg[0]}?{urlencode({'t': cfg[1], 'a': 'papers'})}" if cfg else None

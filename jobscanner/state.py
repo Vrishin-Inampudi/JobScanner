@@ -35,7 +35,7 @@ class State:
                  pending: list[Posting] | None = None, last_digest_on: str | None = None,
                  trouble: dict[str, str] | None = None,
                  sent: list[dict] | None = None, drafts: dict | None = None, last_weekly_on: str | None = None,
-                 project: dict | None = None):
+                 project: dict | None = None, papers: dict | None = None):
         self.lists = lists or {}
         self.emailed = emailed or {}
         self.last_run_at = last_run_at      # last run where every list was checked
@@ -48,6 +48,9 @@ class State:
         self.sent = sent or []              # recent matches {at, id, company, title, url}, for the weekly summary
         self.drafts = drafts or {}          # {"on": ET date, "count": drafts written that day}
         self.last_weekly_on = last_weekly_on  # ET date of the last weekly summary
+        # Papers sent are public facts about public papers: {"sent": [ids], "last_at": time, "on": ET date,
+        # "tries": n, "done": bool, "lab_links": [ids of undated lab pages already seen]}.
+        self.papers = papers or {}
         self.project = project or {}        # {"on": ET date, "tries": n, "sent": bool}: only that a project email went out
 
     @classmethod
@@ -66,7 +69,7 @@ class State:
         pending = [Posting.from_dict(d) for d in raw.get("pending") or []]
         return cls(raw.get("lists"), raw.get("emailed"), when("last_run_at"), when("last_email_at"),
                    pending, raw.get("last_digest_on"), raw.get("trouble"), raw.get("sent"),
-                   raw.get("drafts"), raw.get("last_weekly_on"), raw.get("project"))
+                   raw.get("drafts"), raw.get("last_weekly_on"), raw.get("project"), raw.get("papers"))
 
     def diff(self, list_key: str, postings: list[Posting]) -> list[Posting]:
         """Postings not seen before in this list."""
@@ -102,5 +105,5 @@ class State:
                 "pending": [p.to_dict() for p in self.pending], "last_digest_on": self.last_digest_on,
                 "trouble": self.trouble, "sent": [s for s in self.sent if s["at"][:10] >= cutoff],
                 "drafts": self.drafts, "last_weekly_on": self.last_weekly_on,
-                "project": self.project}
+                "project": self.project, "papers": self.papers}
         p.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")

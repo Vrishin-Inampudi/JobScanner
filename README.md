@@ -149,6 +149,47 @@ your resume, so read them before sending. Scores, reasons and drafts go only to 
 email and your private Sheet; they are never written to the state file on the repo. If the AI service has trouble, the alert still
 goes out, just without a score.
 
+### A paper to read, with a quiz (optional)
+
+A few times a week you get one **research paper** worth your time, chosen for security
+engineering at top companies and network engineering at trading firms and SpaceX. Which
+paper is decided in this order:
+
+1. **A frontier lab's release.** A new security or networking write-up from Anthropic's
+   Frontier Red Team, OpenAI, Google Project Zero, the Google Security Blog, Google DeepMind
+   or Cloudflare Research since the last paper email. Labs publish most of this work as posts,
+   so a post counts. A small model screens out product news.
+2. **The reading list.** About 20 works that define those roles, such as "Network Design
+   Considerations for Trading Systems", the Starlink measurement papers and "Defeating Prompt
+   Injections by Design". One per email, the three roles taking turns. The list is
+   `READING_LIST` in `jobscanner/papers.py`; every link was checked when it was written.
+3. **New and notable.** Once the list is done: new arXiv papers in security (cs.CR) and
+   networking (cs.NI), ranked by Hacker News points and acceptance at a top conference. A
+   paper is dated by its arXiv number, so an old one being discussed again isn't sent as new.
+
+The email has the link, a three-sentence summary, why it matters for you and how long it
+takes to read. Claude reads the whole paper and writes a **quiz**: six multiple-choice
+questions and two open, interview-style ones. With the tracker set up, the email's *Take the
+quiz* button opens a private page that grades each answer as you give it, shows the
+explanation and where in the paper it comes from, and logs the result to your Sheet. A
+second page, **Your papers**, lists every paper with your score and the topics you miss
+most. Without the tracker, the questions are in the email with the answers at the bottom.
+
+The questions are written by AI and can be wrong; each has a *This looks wrong* button, and
+the paper is the authority. A quiz that breaks the format (wrong number of questions, no
+single right answer, any web address) is sent back once, then dropped.
+
+It needs only `ANTHROPIC_API_KEY`. **Your resume is not used**: these requests carry just
+the public paper. The only addresses requested are the watched labs' own sites, the fixed
+reading list, arxiv.org and Hacker News, each at most once per attempt. The state file
+records which papers were sent, which is public information about public papers.
+
+Turn it on with `papers` in `config.yaml`. See one without sending anything:
+
+```bash
+.venv/bin/python -m jobscanner --paper-preview   # writes paper-preview/
+```
+
 ### A project to build each week (optional)
 
 Once a week you get one **advanced project** to build, chosen from what the jobs you
@@ -255,6 +296,9 @@ criteria:
   many jobs matched, what you applied to, the matches still waiting on you (newest
   first), and applications older than `follow_up_after_days` with no news. The counts of
   what you applied to need the tracker. Leave it out to turn it off.
+- **`papers`**: `{days: [wednesday, saturday, sunday], hour: 9}` sends a paper and quiz on
+  those days (see above). Optional `focus` lines replace the built-in description of the
+  roles you're aiming at.
 - **`projects`**: `{day: sunday, hour: 18}` sends one project to build a week (see above).
   `min_applied` and `lookback_days` set how many recent applications it needs.
 - **`company_needs_location`**: when `true`, top-company and large-company matches must

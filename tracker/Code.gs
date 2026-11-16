@@ -9,6 +9,8 @@
  *   to Interview, Offer or Rejected. You can also just edit the Status cell in the Sheet.
  * - JobScanner reads your marks back with a=list.
  * - Weekly project guides are kept in the "Guides" tab (POST a=guide) and shown by a=guide.
+ * - Research papers and their quizzes are kept in the "Papers" tab (POST a=paper); a=quiz shows
+ *   one quiz, a=papers shows them all with your scores; each answer is a row in "Quiz log".
  * Every request must carry the secret token set in Project Settings → Script properties.
  *
  * After changing this file: Deploy → Manage deployments → edit → Version: New version.
@@ -24,6 +26,12 @@ const MAX_ROWS_PER_POST = 200;
 const GUIDES = 'Guides';
 const GUIDE_PARTS = 8;          // a guide's JSON is split across this many cells
 const GUIDE_PART_CHARS = 40000; // a cell holds 50,000 characters
+const PAPERS = 'Papers';
+const PAPER_PARTS = 3;
+const PAPER_HEADERS = ['Sent', 'ID', 'Title', 'Link', 'Source'].concat(Array.from({ length: PAPER_PARTS }, (_, i) => 'Part ' + (i + 1)));
+const QUIZ_LOG = 'Quiz log';
+const LOG_HEADERS = ['When', 'Paper', 'Question', 'Kind', 'Topic', 'Result', 'Flagged'];
+const RESULTS = { correct: 1, wrong: 0, 'got it': 1, partly: 0.5, missed: 0 };
 const GUIDE_HEADERS = ['Sent', 'ID', 'Title'].concat(Array.from({ length: GUIDE_PARTS }, (_, i) => 'Part ' + (i + 1)));
 
 function tokenOk(t) {
@@ -49,6 +57,8 @@ function doGet(e) {
     return json({ guides });
   }
   if (p.a === 'guide') return guidePage(String(p.id || ''));
+  if (p.a === 'quiz') return quizPage(p.t, String(p.id || ''));
+  if (p.a === 'papers') return papersPage(p.t);
 
   if (!STATUS[p.a] || !p.id) return page('Unknown action.', '');
   mark(p.a, p);
@@ -61,6 +71,7 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json({ ok: false, error: 'bad request' }); }
   if (!tokenOk(body.t)) return json({ ok: false, error: 'bad token' });
   if (body.a === 'guide') return saveGuide(body);
+  if (body.a === 'paper') return savePaper(body);
   if (body.a !== 'matches' || !Array.isArray(body.rows)) return json({ ok: false, error: 'unknown action' });
 
   const lock = LockService.getScriptLock();
@@ -229,6 +240,105 @@ function guidePage(id) {
     .setTitle(String(guide.title || 'Project guide')).addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/** JobScanner posts each paper and its quiz here: {t, a: 'paper', id, title, link, source, json}. */
+function savePaper(body) {
+  const text = String(body.json || ''), id = String(body.id || '');
+  if (!/^[a-z0-9-]{1,80}$/.test(id) || !text) return json({ ok: false, error: 'bad paper' });
+  if (text.length > PAPER_PARTS * GUIDE_PART_CHARS) return json({ ok: false, error: 'quiz too long' });
+  try { JSON.parse(text); } catch (err) { return json({ ok: false, error: 'bad paper' }); }
+  const parts = Array.from({ length: PAPER_PARTS }, (_, i) => {
+    const piece = text.slice(i * GUIDE_PART_CHARS, (i + 1) * GUIDE_PART_CHARS);
+    return piece ? '|' + piece : '';     // "|" first, so no piece is ever read as a formula
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = tab(PAPERS, PAPER_HEADERS);
+    const row = [new Date(), id, safe(String(body.title || '').slice(0, 300)), safe(String(body.link || '').slice(0, 500)),
+      safe(String(body.source || '').slice(0, 300))].concat(parts);
+    const at = sh.getRange(1, 2, sh.getLastRow(), 1).getValues().map(r => String(r[0])).indexOf(id);
+    if (at > 0) { row[0] = sh.getRange(at + 1, 1).getValue(); sh.getRange(at + 1, 1, 1, row.length).setValues([row]); }
+    else sh.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return json({ ok: true });
+}
+
+/** Every paper with its quiz, oldest first. */
+function paperRows() {
+  return tab(PAPERS, PAPER_HEADERS).getDataRange().getValues().slice(1).filter(r => r[1]).map(r => {
+    let quiz = null;
+    try { quiz = JSON.parse(r.slice(5).map(c => String(c || '').slice(1)).join('')); } catch (err) { quiz = null; }
+    return { sent: r[0] instanceof Date ? r[0].getTime() : 0, id: String(r[1]), title: String(r[2]), link: String(r[3]),
+      source: String(r[4]), quiz: quiz };
+  });
+}
+
+/** Your latest answer to each question: {paper id: {question number: {result, topic, kind, flagged}}}. */
+function latestAnswers() {
+  const out = {};
+  tab(QUIZ_LOG, LOG_HEADERS).getDataRange().getValues().slice(1).forEach(r => {
+    const paper = String(r[1]), q = String(r[2]);
+    if (!paper || !q) return;
+    out[paper] = out[paper] || {};
+    const was = out[paper][q] || {};
+    out[paper][q] = { result: r[5] ? String(r[5]) : (was.result || ''), topic: String(r[4] || was.topic || ''),
+      kind: String(r[3] || was.kind || ''), flagged: Boolean(r[6]) || Boolean(was.flagged) };
+  });
+  return out;
+}
+
+/** Called from the quiz page as you answer: one row per answer (or per "this looks wrong"). */
+function logAnswer(t, rec) {
+  if (!tokenOk(t) || !rec || !/^[a-z0-9-]{1,80}$/.test(String(rec.paper || ''))) throw new Error('Not allowed.');
+  const q = Number(rec.q), flagged = rec.flagged === true;
+  const result = String(rec.result || '');
+  if (!(q >= 1 && q <= 50) || (!flagged && !(result in RESULTS))) throw new Error('Not allowed.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    tab(QUIZ_LOG, LOG_HEADERS).appendRow([new Date(), String(rec.paper), q, rec.kind === 'open' ? 'open' : 'choice',
+      safe(String(rec.topic || '').slice(0, 60)), flagged ? '' : result, flagged ? 'yes' : '']);
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
+}
+
+function embed(template, data) {
+  // Data goes into the page as JSON; "<" is escaped so no text can close the script tag.
+  const text = JSON.stringify(data).replace(/</g, '\\u003c');
+  return template.replace('__DATA__', () => text).replace('__STYLE__', () => STUDY_STYLE);
+}
+
+function quizPage(token, id) {
+  const paper = paperRows().filter(p => p.id === id)[0];
+  if (!paper || !paper.quiz) return page('That quiz isn\'t in your Sheet any more.', SpreadsheetApp.getActiveSpreadsheet().getUrl());
+  const data = { token: token, paper: paper, base: ScriptApp.getService().getUrl() };
+  return HtmlService.createHtmlOutput(embed(QUIZ, data)).setTitle('Quiz: ' + paper.title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function papersPage(token) {
+  const answers = latestAnswers();
+  const papers = paperRows().reverse().map(p => {
+    const mine = answers[p.id] || {}, total = p.quiz ? (p.quiz.choice || []).length + (p.quiz.open || []).length : 0;
+    const done = Object.keys(mine).filter(q => mine[q].result);
+    return { id: p.id, title: p.title, link: p.link, source: p.source, sent: p.sent, total: total, answered: done.length,
+      points: done.reduce((sum, q) => sum + (RESULTS[mine[q].result] || 0), 0) };
+  });
+  const missed = {};
+  Object.keys(answers).forEach(pid => Object.keys(answers[pid]).forEach(q => {
+    const a = answers[pid][q];
+    if (a.result && a.topic) { missed[a.topic] = missed[a.topic] || { asked: 0, lost: 0 }; missed[a.topic].asked++; missed[a.topic].lost += 1 - (RESULTS[a.result] || 0); }
+  }));
+  const data = { token: token, papers: papers, topics: missed, base: ScriptApp.getService().getUrl(),
+    sheet: SpreadsheetApp.getActiveSpreadsheet().getUrl() };
+  return HtmlService.createHtmlOutput(embed(PAPERS_PAGE, data)).setTitle('Your papers')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
 function dashboard(token) {
   // Data goes into the page as JSON; "<" is escaped so no job title can close the script tag.
   const data = JSON.stringify({ jobs: dashboardData(), token: token, statuses: STATUS,
@@ -392,4 +502,133 @@ const GUIDE = `<!doctype html><html><head><base target="_blank"><style>
   m.append(el('h2', '', 'When you finish.'));
   list('Resume lines you can now write', G.resume_lines, t => String(t));
   list('Read first if rusty', G.reading, r => { if (/^https:\\/\\//.test(r.url || '')) { const a = el('a', '', r.title); a.href = r.url; a.rel = 'noopener noreferrer'; return a; } return String(r.title); });
+</script></body></html>`;
+
+// Shared look of the quiz and papers pages. All text is set with textContent, never as markup.
+const STUDY_STYLE = `
+  :root { --bg:#000; --panel:#1d1d1f; --text:#f5f5f7; --muted:#86868b; --blue:#2997ff; --green:#30d158; --orange:#ff9f0a; --red:#ff453a; --line:#424245 }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--text);
+    font:17px/1.45 -apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Helvetica,Arial,sans-serif }
+  main { max-width:720px; margin:0 auto; padding:56px 20px 96px } a { color:var(--blue); text-decoration:none }
+  .eyebrow { color:var(--orange); font-size:14px; font-weight:600 } h1 { font-size:40px; line-height:1.08; letter-spacing:-.02em; margin:8px 0 10px }
+  .sub { color:var(--muted); font-size:17px; margin-bottom:28px } .panel { background:var(--panel); border-radius:18px; padding:26px; margin-top:14px; overflow-wrap:anywhere }
+  .q { font-size:21px; line-height:1.3; font-weight:600; margin:6px 0 18px } .small { color:var(--muted); font-size:13px; font-weight:600 }
+  button { font:inherit; color:var(--text); background:transparent; border:1px solid var(--line); border-radius:12px; padding:13px 16px; cursor:pointer; text-align:left }
+  button:hover:not(:disabled) { border-color:var(--muted) } button:disabled { cursor:default }
+  .opt { display:block; width:100%; margin-top:10px } .opt.right { border-color:var(--green); color:var(--green) } .opt.wrong { border-color:var(--red); color:var(--red) }
+  .go { background:#0071e3; border-color:#0071e3; border-radius:980px; padding:11px 22px; color:#fff } .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; align-items:center }
+  .why { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); font-size:16px } .why b { display:block; margin-bottom:4px }
+  .ok { color:var(--green) } .no { color:var(--red) } .flag { border:0; padding:0; color:var(--muted); font-size:13px; margin-left:auto }
+  textarea { width:100%; min-height:130px; background:#000; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font:inherit; font-size:16px }
+  ul { margin:8px 0 0; padding-left:20px } li { margin:4px 0 } .nums { display:flex; gap:40px; flex-wrap:wrap; margin:6px 0 30px } .nums b { display:block; font-size:32px }
+  .nums span { font-size:13px; color:var(--muted) } .paper { display:flex; gap:16px; align-items:center } .paper .t { flex:1 } .paper .t a { color:var(--text); font-weight:600 }
+  .score { font-size:22px; font-weight:700; min-width:64px; text-align:right } .bar { height:6px; border-radius:3px; background:var(--line); margin-top:6px; overflow:hidden }
+  .bar i { display:block; height:100%; background:var(--orange) } h2 { font-size:26px; letter-spacing:-.01em; margin:44px 0 0 }
+  @media (max-width:560px) { h1 { font-size:30px } .q { font-size:19px } }
+`;
+
+const QUIZ = `<!doctype html><html><head><base target="_blank"><style>__STYLE__</style></head><body><main id="m"></main><script>
+  const D = __DATA__, P = D.paper, Z = P.quiz;
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const link = (text, href, cls) => { const a = el('a', cls, text); if (/^https:\\/\\//.test(href)) { a.href = href; a.rel = 'noopener noreferrer'; } return a; };
+  const QS = (Z.choice || []).map(q => Object.assign({ kind: 'choice' }, q)).concat((Z.open || []).map(q => Object.assign({ kind: 'open' }, q)));
+  const m = document.getElementById('m'), SCORE = { correct: 1, wrong: 0, 'got it': 1, partly: 0.5, missed: 0 };
+  let at = 0, points = 0, saveFailed = false;
+  const save = rec => google.script.run.withFailureHandler(() => { saveFailed = true; }).logAnswer(D.token, Object.assign({ paper: P.id }, rec));
+
+  function head() {
+    m.replaceChildren(el('div', 'eyebrow', 'Quiz'), el('h1', '', P.title));
+    const sub = el('div', 'sub'); sub.append(P.source + ' · ', link('Read the paper', P.link)); m.append(sub);
+  }
+
+  function flagButton(n, q) {
+    const b = el('button', 'flag', 'This looks wrong');
+    b.onclick = () => { save({ q: n, kind: q.kind, topic: q.topic, flagged: true }); b.textContent = 'Flagged, thanks'; b.disabled = true; };
+    return b;
+  }
+
+  function next(box) {
+    const row = el('div', 'row'), b = el('button', 'go', at + 1 < QS.length ? 'Next question' : 'See your score');
+    b.onclick = () => { at++; at < QS.length ? show() : finish(); };
+    row.append(b, flagButton(at + 1, QS[at])); box.append(row); b.focus();
+  }
+
+  function show() {
+    head();
+    const q = QS[at], box = el('div', 'panel');
+    box.append(el('div', 'small', 'Question ' + (at + 1) + ' of ' + QS.length + ' · ' + q.topic), el('div', 'q', q.question));
+    if (q.kind === 'choice') {
+      const buttons = q.options.map((text, i) => { const b = el('button', 'opt', text); b.onclick = () => answer(i); return b; });
+      const answer = i => {
+        buttons.forEach((b, j) => { b.disabled = true; if (j === q.answer) b.classList.add('right'); else if (j === i) b.classList.add('wrong'); });
+        const right = i === q.answer; points += right ? 1 : 0;
+        save({ q: at + 1, kind: 'choice', topic: q.topic, result: right ? 'correct' : 'wrong' });
+        const why = el('div', 'why'); why.append(el('b', right ? 'ok' : 'no', right ? 'Correct.' : 'Not quite.'), q.explanation, el('div', 'small', 'In the paper: ' + q.section));
+        box.append(why); next(box);
+      };
+      box.append(...buttons);
+    } else {
+      const ta = el('textarea'); ta.placeholder = 'Write your answer as you would say it in an interview, then compare.';
+      const row = el('div', 'row'), reveal = el('button', 'go', 'Show the model answer');
+      reveal.onclick = () => {
+        ta.readOnly = true; row.remove();
+        const why = el('div', 'why'), ul = el('ul'); (q.points || []).forEach(p => ul.append(el('li', '', p)));
+        why.append(el('b', '', 'Model answer'), q.model_answer, el('div', 'small', 'A strong answer makes these points:'), ul);
+        const marks = el('div', 'row'); marks.append(el('span', 'small', 'How did yours compare?'));
+        ['got it', 'partly', 'missed'].forEach(r => { const b = el('button', '', r[0].toUpperCase() + r.slice(1)); b.onclick = () => {
+          marks.querySelectorAll('button').forEach(x => x.disabled = true); b.classList.add(r === 'missed' ? 'wrong' : 'right');
+          points += SCORE[r]; save({ q: at + 1, kind: 'open', topic: q.topic, result: r }); next(box); }; marks.append(b); });
+        box.append(why, marks);
+      };
+      row.append(reveal); box.append(ta, row);
+    }
+    m.append(box);
+  }
+
+  function finish() {
+    head();
+    const box = el('div', 'panel');
+    box.append(el('div', 'small', 'Your score'), el('div', 'q', points + ' out of ' + QS.length));
+    if (saveFailed) box.append(el('div', 'no', 'Some answers could not be saved to your Sheet.'));
+    const row = el('div', 'row'); row.append(link('All your papers', D.base + '?t=' + encodeURIComponent(D.token) + '&a=papers', 'go'));
+    const again = el('button', '', 'Take it again'); again.onclick = () => { at = 0; points = 0; show(); }; row.append(again);
+    box.append(row); m.append(box);
+  }
+
+  QS.length ? show() : m.append(el('p', '', 'This quiz has no questions.'));
+</script></body></html>`;
+
+const PAPERS_PAGE = `<!doctype html><html><head><base target="_blank"><style>__STYLE__</style></head><body><main id="m"></main><script>
+  const D = __DATA__;
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const link = (text, href, cls) => { const a = el('a', cls, text); if (/^https:\\/\\//.test(href)) { a.href = href; a.rel = 'noopener noreferrer'; } return a; };
+  const m = document.getElementById('m'), taken = D.papers.filter(p => p.answered > 0);
+  const asked = taken.reduce((s, p) => s + p.answered, 0), got = taken.reduce((s, p) => s + p.points, 0);
+  let streak = 0; while (streak < D.papers.length && D.papers[streak].answered > 0) streak++;
+  m.append(el('div', 'eyebrow', 'Reading'), el('h1', '', 'Your papers'));
+  const nums = el('div', 'nums');
+  [[D.papers.length, 'papers sent'], [taken.length, 'quizzes taken'], [asked ? Math.round(100 * got / asked) + '%' : '–', 'average score'], [streak, 'latest quizzes done in a row']]
+    .forEach(([v, k]) => { const d = el('div'); d.append(el('b', '', String(v)), el('span', '', k)); nums.append(d); });
+  m.append(nums);
+
+  const weak = Object.entries(D.topics).filter(([, t]) => t.lost > 0).sort((a, b) => b[1].lost - a[1].lost || b[1].asked - a[1].asked).slice(0, 8);
+  if (weak.length) {
+    const box = el('div', 'panel'); box.append(el('div', 'small', 'Topics you miss most'));
+    weak.forEach(([topic, t]) => { const row = el('div'); row.style.marginTop = '12px';
+      row.append(topic + ' ', el('span', 'small', 'missed ' + (Math.round(t.lost * 10) / 10) + ' of ' + t.asked));
+      const bar = el('div', 'bar'), fill = el('i'); fill.style.width = Math.round(100 * t.lost / t.asked) + '%'; bar.append(fill); row.append(bar); box.append(row); });
+    m.append(box);
+  }
+
+  m.append(el('h2', '', 'Every paper'));
+  if (!D.papers.length) m.append(el('p', 'sub', 'No papers yet.'));
+  D.papers.forEach(p => {
+    const box = el('div', 'panel paper'), t = el('div', 't');
+    t.append(link(p.title, p.link), el('div', 'small', p.source + ' · sent ' + new Date(p.sent).toLocaleDateString()));
+    const quiz = link(p.answered ? 'Retake quiz' : 'Take quiz', D.base + '?t=' + encodeURIComponent(D.token) + '&a=quiz&id=' + encodeURIComponent(p.id));
+    quiz.style.fontSize = '14px'; quiz.style.color = 'var(--blue)'; quiz.style.fontWeight = '400'; t.append(quiz);
+    box.append(t, el('div', 'score', p.answered ? (Math.round(p.points * 10) / 10) + '/' + p.answered : '–'));
+    m.append(box);
+  });
+  const foot = el('p', 'small'); foot.append(link('Open the Sheet', D.sheet)); m.append(foot);
 </script></body></html>`;

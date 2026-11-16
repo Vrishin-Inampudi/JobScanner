@@ -1,12 +1,13 @@
 """Check intern-list.com and email new qualifying internships.
 
 Usage: python -m jobscanner [--config config.yaml] [--state state/seen.json] [--dry-run] [--preview] [--test] [--show-lists]
-                            [--project-preview]
+                            [--project-preview] [--paper-preview]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +16,7 @@ from typing import Callable
 
 from pathlib import Path
 
-from . import ai, emailer, guide, notify, projects, sites, source, tracker
+from . import ai, emailer, guide, notify, papers, projects, sites, source, tracker
 from .config import load_config
 from .filters import Match, evaluate, rank
 from .state import State
@@ -48,6 +49,7 @@ def run(
     sender: Callable[..., None] = emailer.send,
     now: datetime | None = None,
     assistant: ai.Assistant | None | str = "auto",
+    reader: ai.Assistant | None | str = "auto",
 ) -> int:
     cfg = load_config(config_path)
     now = now or datetime.now(timezone.utc)
@@ -205,6 +207,9 @@ def run(
                 assistant = ai.from_env(cfg.ai)
             _project(cfg.projects, state, session, sender, assistant, now, today)
             state.save(state_path)
+        if cfg.papers and _paper_due(cfg.papers, state, today):
+            _paper(cfg.papers, state, session, sender, ai.without_resume(cfg.ai) if reader == "auto" else reader, now, today)
+            state.save(state_path)
 
     for f in site_trouble:
         log.warning("%s (checking again next run)", f)
@@ -277,6 +282,84 @@ def _project(pc: projects.ProjectsConfig, state: State, session, sender, assista
         log.info("sent the weekly project guide")
     except Exception as e:  # noqa: BLE001 - never let this stop the alerts; the message could quote the guide
         log.warning("project guide: failed (%s)", type(e).__name__)
+
+
+def _paper_due(pc: papers.PapersConfig, state: State, today: datetime) -> bool:
+    tried = state.papers if state.papers.get("on") == today.date().isoformat() else {}
+    return (today.weekday() in pc.days and today.hour >= pc.hour and not tried.get("done")
+            and tried.get("tries", 0) < papers.MAX_TRIES_PER_DAY)
+
+
+def _paper(pc: papers.PapersConfig, state: State, session, sender, reader, now: datetime, today: datetime) -> None:
+    """Send a paper and its quiz if one is due. Trouble is logged and skipped: alerts matter more.
+
+    ``reader`` is an assistant that holds no resume: these requests carry only the public paper.
+    """
+    if not _paper_due(pc, state, today):
+        return
+    day, memory = today.date().isoformat(), state.papers
+    tries = memory.get("tries", 0) if memory.get("on") == day else 0
+    memory.update({"on": day, "tries": tries + 1, "done": False})
+    try:
+        if not isinstance(reader, ai.Assistant):
+            log.info("paper: needs the ANTHROPIC_API_KEY secret; skipped")
+            memory["tries"] = papers.MAX_TRIES_PER_DAY
+            return
+        paper = papers.pick(session, reader, memory, now, pc.focus)
+        if not paper:
+            log.info("paper: nothing suitable turned up this time")
+            return
+        content = papers.read(session, paper)
+        if content is None:
+            log.warning("paper: '%s' couldn't be read; it will be passed over", paper.id)
+            memory["sent"] = (memory.get("sent") or []) + paper.ids
+            return
+        quiz = papers.make_quiz(reader, content, pc.focus)
+        if not quiz:
+            log.warning("paper: the quiz for '%s' couldn't be written this time", paper.id)
+            failed = memory.setdefault("failed", {})
+            failed[paper.id] = failed.get(paper.id, 0) + 1
+            if failed[paper.id] >= papers.MAX_TRIES_PER_DAY:      # it keeps failing: move on to the next paper
+                memory["sent"] = (memory.get("sent") or []) + paper.ids
+                failed.pop(paper.id)
+            return
+        sheet_id = paper.sheet_id(day)
+        saved = tracker.push_paper(session, sheet_id, paper.title, paper.url, paper.source, quiz)
+        subject, text, html_body = emailer.render_paper(paper, quiz, (tracker.quiz_url(sheet_id) or "") if saved else "",
+                                                        (tracker.papers_url() or "") if saved else "")
+        sender(subject, text, html_body)
+        memory.update({"sent": (memory.get("sent") or []) + paper.ids, "last_at": now.isoformat(), "done": True})
+        log.info("sent the paper '%s'", paper.id)
+    except Exception as e:  # noqa: BLE001 - never let this stop the alerts
+        log.warning("paper: failed (%s)", type(e).__name__)
+
+
+def paper_preview(config_path: str, out_dir: str = "paper-preview", session=None, reader="auto", now: datetime | None = None) -> int:
+    """Write a paper email and its quiz to a folder, sending nothing and saving nothing.
+
+    With ANTHROPIC_API_KEY set it picks and reads a real paper; without it, it shows the built-in sample.
+    """
+    cfg = load_config(config_path)
+    pc, now = cfg.papers or papers.PapersConfig(), now or datetime.now(timezone.utc)
+    session = session or source.new_session()
+    reader = ai.without_resume(cfg.ai) if reader == "auto" else reader
+    paper = quiz = None
+    if reader:
+        paper = papers.pick(session, reader, {"lab_links": []}, now, pc.focus)
+        content = papers.read(session, paper) if paper else None
+        quiz = papers.make_quiz(reader, content, pc.focus) if content else None
+    sample = quiz is None
+    if sample:
+        log.info("showing the built-in sample (a real one needs the ANTHROPIC_API_KEY secret)")
+        paper, quiz = papers.SAMPLE_PAPER, papers.SAMPLE_QUIZ
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    subject, text, html_body = emailer.render_paper(paper, quiz, sample=sample)
+    (out / "email.html").write_text(html_body)
+    (out / "email.txt").write_text(f"Subject: {subject}\n\n{text}")
+    (out / "quiz.json").write_text(json.dumps(quiz, indent=1))
+    log.info("wrote the email and quiz to %s/", out)
+    return 0
 
 
 def project_preview(config_path: str, out_dir: str = "project-preview", session=None, assistant="auto", now: datetime | None = None) -> int:
@@ -403,6 +486,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--test", action="store_true",
                     help=f"send a [Test] email of matches from the last {TEST_WINDOW_HOURS}h; doesn't touch state")
     ap.add_argument("--show-lists", action="store_true", help="print the list keys intern-list.com offers")
+    ap.add_argument("--paper-preview", action="store_true",
+                    help="write the next paper email and quiz to paper-preview/ without sending anything")
     ap.add_argument("--project-preview", action="store_true",
                     help="write this week's project email and its files to project-preview/ without sending anything")
     args = ap.parse_args(argv)
@@ -415,6 +500,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.project_preview:
             return project_preview(args.config)
+        if args.paper_preview:
+            return paper_preview(args.config)
         return run(args.config, args.state, dry_run=args.dry_run or args.preview, preview=args.preview, test=args.test)
     except Exception as e:
         log.error("%s: %s", type(e).__name__, e)

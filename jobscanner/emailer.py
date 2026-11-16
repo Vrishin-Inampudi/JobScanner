@@ -441,6 +441,70 @@ The guide's commands were written by AI. Read each one before you run it.</td></
     return subject, "\n".join(lines).rstrip() + "\n", page
 
 
+def render_paper(paper, quiz: dict, quiz_link: str = "", papers_link: str = "", sample: bool = False) -> tuple[str, str, str]:
+    """The paper email: (subject, plain text, HTML).
+
+    With a quiz link the questions stay on the quiz page; without one (no tracker) they are
+    listed here, with the answers at the very bottom.
+    """
+    e = html.escape
+    subject = ("[Sample] " if sample else "") + f"📄 Paper to read: {paper.title}"
+    label = {"lab": "New from a frontier lab", "core": "From your reading list", "fresh": "New and notable"}.get(paper.lane, "Paper")
+    byline = " · ".join(x for x in (paper.authors, paper.source) if x)
+    safe_url = paper.url if paper.url.startswith("https://") else ""
+    button = lambda text, href, solid: (
+        f'<a href="{e(href, quote=True)}" style="display:inline-block;margin:0 5px 10px;border-radius:980px;padding:11px 22px;font-size:16px;'
+        f'text-decoration:none;{"background:" + P_BUTTON + ";color:#ffffff" if solid else "border:1px solid #424245;color:" + P_BLUE}">{e(text)}</a>')
+    buttons = (button("Read the paper", safe_url, True) if safe_url else "") + (button("Take the quiz", quiz_link, False) if quiz_link else "")
+    choice, opens = quiz.get("choice") or [], quiz.get("open") or []
+    facts = [(f"{quiz.get('minutes')} min", "to read"), (str(len(choice) + len(opens)), "quiz questions")]
+    cells = "".join(f'<td align="center" width="50%" style="padding:0 6px"><div style="font-size:26px;font-weight:700;color:{P_TEXT}">{e(v)}</div>'
+                    f'<div style="font-size:13px;color:{P_MUTED}">{e(k)}</div></td>' for v, k in facts)
+    letters = "ABCD"
+    listed, answers = "", ""
+    if not quiz_link:      # nowhere to host the quiz: put it in the email, answers last
+        items = [f'<div style="margin:0 0 14px"><b>{n}. {e(q["question"])}</b><br>'
+                 + "<br>".join(f"{letters[i]}. {e(o)}" for i, o in enumerate(q["options"])) + "</div>" for n, q in enumerate(choice, 1)]
+        items += [f'<div style="margin:0 0 14px"><b>{n}. {e(q["question"])}</b></div>' for n, q in enumerate(opens, len(choice) + 1)]
+        listed = _panel("Practice questions.", "".join(items))
+        keys = [f'<div style="margin:0 0 10px"><b>{n}. {letters[q["answer"]]}.</b> {e(q["explanation"])} '
+                f'<span style="color:{P_MUTED}">({e(q["section"])})</span></div>' for n, q in enumerate(choice, 1)]
+        keys += [f'<div style="margin:0 0 10px"><b>{n}.</b> {e(q["model_answer"])}</div>' for n, q in enumerate(opens, len(choice) + 1)]
+        answers = _panel("Answers.", "".join(keys))
+    foot = (f'<a href="{e(papers_link, quote=True)}" style="color:{P_BLUE};text-decoration:none">All your papers and scores ›</a><br>'
+            if papers_link else "")
+    page = f"""<!doctype html><html><head><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
+<body style="margin:0;padding:0;background:{P_BG}">
+<div style="display:none;max-height:0;overflow:hidden">{e(str(quiz.get("summary") or "")[:140])}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{P_BG};font-family:{P_FONT}"><tr><td align="center" style="padding:0 16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
+<tr><td align="center" style="padding:52px 8px 30px">
+  <div style="font-size:13px;font-weight:600;color:{P_ORANGE}">{'Sample paper' if sample else e(label)}</div>
+  <div style="font-size:32px;line-height:1.12;font-weight:700;letter-spacing:-.02em;color:{P_TEXT};margin-top:8px">{e(paper.title)}</div>
+  <div style="font-size:16px;line-height:1.4;color:{P_MUTED};margin-top:12px">{e(byline)}</div>
+  {f'<div style="margin-top:24px">{buttons}</div>' if buttons else ''}
+</td></tr>
+<tr><td style="padding:0 0 30px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{cells}</tr></table></td></tr>
+{_panel("What it says.", e(str(quiz.get("summary") or "")))}
+{_panel("Why it matters for you.", e(str(quiz.get("why") or "")))}
+{listed}{answers}
+<tr><td style="padding:10px 8px 44px;font-size:13px;line-height:1.7;color:{P_MUTED}">{foot}
+The summary and questions were written by AI from the paper. If one looks wrong, trust the paper.</td></tr>
+</table></td></tr></table></body></html>"""
+    lines = [f"Paper to read: {paper.title}", byline, "", f"Read it: {safe_url}" if safe_url else "",
+             f"Take the quiz: {quiz_link}" if quiz_link else "", "", str(quiz.get("summary") or ""), "",
+             "Why it matters for you:", str(quiz.get("why") or ""), "", f"About {quiz.get('minutes')} minutes to read."]
+    if not quiz_link:
+        lines += ["", "Practice questions:"]
+        for n, q in enumerate(choice, 1):
+            lines += ["", f"{n}. {q['question']}"] + [f"   {letters[i]}. {o}" for i, o in enumerate(q["options"])]
+        lines += [f"\n{n}. {q['question']}" for n, q in enumerate(opens, len(choice) + 1)]
+        lines += ["", "", "Answers:"] + [f"{n}. {letters[q['answer']]}. {q['explanation']}" for n, q in enumerate(choice, 1)]
+        lines += [f"{n}. {q['model_answer']}" for n, q in enumerate(opens, len(choice) + 1)]
+    lines += ["", f"All your papers: {papers_link}"] if papers_link else []
+    return subject, "\n".join(l for i, l in enumerate(lines) if l or (i and lines[i - 1])).rstrip() + "\n", page
+
+
 _FILE_TYPES = {"pdf": ("application", "pdf"), "md": ("text", "markdown"),
                "docx": ("application", "vnd.openxmlformats-officedocument.wordprocessingml.document")}
 

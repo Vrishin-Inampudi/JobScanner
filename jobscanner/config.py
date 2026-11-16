@@ -10,6 +10,7 @@ import yaml
 
 from .ai import AIConfig
 from .filters import Criteria, parse_month
+from .papers import PapersConfig
 from .projects import ProjectsConfig
 from .skills import Skills, skill
 
@@ -65,6 +66,7 @@ class Config:
     weekly_summary: tuple[int, int] | None = None  # (weekday 0=Mon, ET hour) for the weekly summary email
     follow_up_after_days: int = 10               # applications this old with no news are listed in the summary
     projects: ProjectsConfig | None = None       # one project guide a week, from the jobs you applied to
+    papers: PapersConfig | None = None           # a research paper with a quiz, a few times a week
 
 
 def load_config(path: str | Path) -> Config:
@@ -123,7 +125,7 @@ def load_config(path: str | Path) -> Config:
                   empty_email_every_hours=float(every) if every else None, quiet_hours=quiet,
                   check_every_minutes=check_every, digest_hour=digest, ai=_ai(path, raw.get("ai") or {}),
                   weekly_summary=_weekly(path, raw.get("weekly_summary")), follow_up_after_days=follow_up,
-                  projects=_projects(path, raw.get("projects")))
+                  projects=_projects(path, raw.get("projects")), papers=_papers(path, raw.get("papers")))
 
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -137,6 +139,25 @@ def _weekly(path, section) -> tuple[int, int] | None:
     if not isinstance(section, dict) or day not in DAYS or not (isinstance(hour, int) and 0 <= hour <= 23):
         raise ValueError(f"{path}: 'weekly_summary' must look like {{day: sunday, hour: 18}}, got {section!r}")
     return DAYS.index(day), hour
+
+
+def _papers(path, section) -> PapersConfig | None:
+    """``papers: {days: [wednesday, saturday, sunday], hour: 9}``; optional ``focus`` lines; leave it out to turn it off."""
+    if section is None:
+        return None
+    bad = ValueError(f"{path}: 'papers' must look like {{days: [wednesday, saturday, sunday], hour: 9}}, got {section!r}")
+    if not isinstance(section, dict) or set(section) - {"days", "hour", "focus"}:
+        raise bad
+    days, hour, focus = section.get("days"), section.get("hour", 9), section.get("focus")
+    if (not isinstance(days, list) or not days or any(str(d).lower() not in DAYS for d in days)
+            or not isinstance(hour, int) or isinstance(hour, bool) or not 0 <= hour <= 23):
+        raise bad
+    if focus is not None and (not isinstance(focus, list) or not focus or not all(isinstance(f, str) and f.strip() for f in focus)):
+        raise bad
+    cfg = PapersConfig(days=tuple(sorted({DAYS.index(str(d).lower()) for d in days})), hour=hour)
+    if focus:
+        cfg.focus = tuple(" ".join(f.split())[:400] for f in focus[:6])
+    return cfg
 
 
 def _projects(path, section) -> ProjectsConfig | None:

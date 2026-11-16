@@ -179,6 +179,35 @@ class Assistant:
         return data if isinstance(data, dict) else None
 
 
+    def ask(self, what: str, instructions: str, content, schema: dict, small: bool = False, max_tokens: int = 16000) -> dict | None:
+        """One request that does NOT include your resume, whose reply must fit ``schema``.
+
+        For work on public material (research papers). ``content`` is text or a list of content
+        blocks; ``small`` uses the fast scoring model for quick yes/no style judgements.
+        """
+        def make():
+            with self.client.messages.stream(
+                model=self.cfg.score_model if small else self.cfg.draft_model,
+                max_tokens=max_tokens,
+                **({} if small else {"thinking": {"type": "adaptive"}}),
+                system=instructions,
+                messages=[{"role": "user", "content": content}],
+                output_config={"format": {"type": "json_schema", "schema": schema}},
+            ) as stream:
+                return stream.get_final_message()
+        try:
+            data = json.loads(self._call(what, what, make) or "")
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+
+def without_resume(cfg: AIConfig | None = None, env=os.environ) -> Assistant | None:
+    """An assistant for public material only: needs just ANTHROPIC_API_KEY, and holds no resume."""
+    key = (env.get("ANTHROPIC_API_KEY") or "").strip()
+    return Assistant(anthropic.Anthropic(api_key=key), "", cfg) if key else None
+
+
 def from_env(cfg: AIConfig | None = None, env=os.environ) -> Assistant | None:
     """The assistant, or None when the ANTHROPIC_API_KEY or RESUME_TEXT secret isn't set."""
     key, resume = (env.get("ANTHROPIC_API_KEY") or "").strip(), (env.get("RESUME_TEXT") or "").strip()

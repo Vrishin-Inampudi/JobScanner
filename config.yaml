@@ -188,6 +188,15 @@ follow_up_after_days: 10   # applications this old with no news are listed in th
 # ask for that your resume doesn't yet prove. The email comes with step-by-step instructions
 # as a PDF and a Word file, a private link to them, and a file to hand an AI assistant.
 # Needs the tracker and the two AI secrets (see the README). Leave it out to turn it off.
+# A research paper to read, with a quiz (Eastern time). A new security or networking release
+# from a frontier lab comes first; otherwise the next paper on a reading list built for security
+# engineering, trading-firm networking and satellite networking; after that, new arXiv papers
+# ranked by attention. Needs the ANTHROPIC_API_KEY secret; the quiz page and the scores page
+# need the tracker. Your resume is not used. Leave it out to turn it off.
+papers:
+  days: [wednesday, saturday, sunday]
+  hour: 9
+
 projects:
   day: sunday
   hour: 18
