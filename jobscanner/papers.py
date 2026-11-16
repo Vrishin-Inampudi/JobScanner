@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import defusedxml.ElementTree as ET   # feeds are text from the web: no entity tricks
 
@@ -32,6 +32,7 @@ from .source import TIMEOUT, url_key
 log = logging.getLogger("jobscanner")
 
 MAX_TRIES_PER_DAY = 3
+MAX_REDIRECTS = 4
 MAX_FETCH_BYTES = 20_000_000     # a paper larger than this is skipped
 MAX_TEXT_CHARS = 120_000         # of a web page's text given to the model
 LAB_WINDOW = timedelta(days=14)  # how far back a lab release still counts as new, the first time
@@ -147,7 +148,7 @@ LABS = (
     Lab("Anthropic Frontier Red Team", "https://www.anthropic.com/research/team/frontier-red-team", ("www.anthropic.com",), "/research/"),
     Lab("OpenAI", "https://openai.com/news/rss.xml", ("openai.com",)),
     Lab("Google Project Zero", "https://projectzero.google/feed.xml", ("projectzero.google",)),
-    Lab("Google Security Blog", "https://security.googleblog.com/feeds/posts/default", ("security.googleblog.com",)),
+    Lab("Google Security Blog", "https://feeds.feedburner.com/GoogleOnlineSecurityBlog", ("security.googleblog.com",)),   # its own feed address redirects here
     Lab("Google DeepMind", "https://deepmind.google/blog/rss.xml", ("deepmind.google",)),
     Lab("Cloudflare Research", "https://blog.cloudflare.com/tag/research/rss/", ("blog.cloudflare.com",)),
 )
@@ -158,19 +159,38 @@ _VENUE = re.compile(r"\b(USENIX Security|IEEE S&P|IEEE Symposium on Security and
                     r"\bIMC\b|HotNets|CoNEXT)", re.I)
 
 
-def _get(session, url: str, limit: int = MAX_FETCH_BYTES):
-    """Fetch one address, up to ``limit`` bytes; (bytes, content type) or raises."""
-    resp = session.get(url, timeout=TIMEOUT, stream=True, allow_redirects=True)
-    try:
-        resp.raise_for_status()
-        body = b""
-        for chunk in resp.iter_content(65536):
-            body += chunk
-            if len(body) > limit:
-                raise ValueError("too large")
-        return body, str(resp.headers.get("Content-Type", "")).lower()
-    finally:
-        resp.close()
+def _same_site(url: str) -> tuple[str, ...]:
+    """The host of an address, with and without 'www.': where a redirect from it may lead."""
+    host = (urlsplit(url).hostname or "").lower()
+    return (host, host[4:] if host.startswith("www.") else f"www.{host}")
+
+
+def _get(session, url: str, limit: int = MAX_FETCH_BYTES, hosts=None):
+    """Fetch one address, up to ``limit`` bytes; (bytes, content type) or raises.
+
+    Redirects are followed by hand, a few at most, and every hop must be a plain https address
+    on ``hosts`` (by default the address's own site): a page can't send the scanner elsewhere,
+    whether to another site or to an address on a private network.
+    """
+    hosts = tuple(hosts or _same_site(url))
+    for _ in range(MAX_REDIRECTS + 1):
+        resp = session.get(url, timeout=TIMEOUT, stream=True, allow_redirects=False)
+        try:
+            if 300 <= resp.status_code < 400:
+                url = urljoin(url, str(resp.headers.get("Location", "")))
+                if not _on(url, hosts):
+                    raise ValueError("redirected away from the paper's site")
+                continue
+            resp.raise_for_status()
+            body = b""
+            for chunk in resp.iter_content(65536):
+                body += chunk
+                if len(body) > limit:
+                    raise ValueError("too large")
+            return body, str(resp.headers.get("Content-Type", "")).lower()
+        finally:
+            resp.close()
+    raise ValueError("too many redirects")
 
 
 def _clean(text) -> str:
@@ -232,7 +252,7 @@ def lab_items(session, since: datetime, seen_links: set[str] | None, labs=LABS) 
     found, current, first_look = [], set(), seen_links is None
     for lab in labs:
         try:
-            body, _ = _get(session, lab.url, 5_000_000)
+            body, _ = _get(session, lab.url, 5_000_000)     # a feed may only redirect within its own site; its items must still link to the lab's
             if lab.links:
                 items = parse_links(body, lab)
                 current |= {p.id for p in items}
@@ -399,7 +419,7 @@ def read(session, paper: Paper) -> list[dict] | None:
     if paper.lane == "lab" and not _on(url, paper.hosts):
         return None
     try:
-        body, kind = _get(session, url)
+        body, kind = _get(session, url, hosts=paper.hosts if paper.lane == "lab" else None)
     except Exception as e:  # noqa: BLE001
         log.warning("papers: couldn't fetch the paper (%s)", type(e).__name__)
         return None

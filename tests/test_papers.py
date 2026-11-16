@@ -210,6 +210,32 @@ def test_read_gives_a_pdf_or_page_text_and_refuses_what_it_should(caplog):
     assert read(Web(), READING_LIST[0]) is None and "couldn't fetch the paper" in caplog.text
 
 
+def test_redirects_are_followed_only_within_the_papers_own_site(caplog):
+    pdf = Reply(b"%PDF-1.7", "application/pdf")
+
+    def moved(to, status=302):
+        r = Reply(status=status)
+        r.headers["Location"] = to
+        return r
+
+    ok = Web({"https://arxiv.org/pdf/2503.18813v2": pdf, "https://arxiv.org/pdf/2503.18813": moved("/pdf/2503.18813v2")})   # longest first: the fake matches by prefix
+    assert read(ok, READING_LIST[0])[0]["type"] == "document"
+    lab = Paper(id="lab:x", title="t", url="https://www.anthropic.com/research/a", source="Anthropic", lane="lab", hosts=("www.anthropic.com",))
+    page = Reply(b"<p>" + b"Finding bugs. " * 200 + b"</p>")
+    assert read(Web({"https://www.anthropic.com/research/a": moved("https://www.anthropic.com/research/b"), "https://www.anthropic.com/research/b": page}), lab)
+    for target in ("https://evil.example/x", "http://www.anthropic.com/research/b", "https://169.254.169.254/latest/meta-data/",
+                   "https://user:pw@www.anthropic.com/x", "https://www.anthropic.com:8443/x", "http://localhost/admin", "file:///etc/passwd"):
+        web = Web({"https://www.anthropic.com/research/a": moved(target)})
+        assert read(web, lab) is None and web.asked == ["https://www.anthropic.com/research/a"], target     # the second address is never requested
+    loop = Web({"https://arxiv.org/pdf/2503.18813": moved("https://arxiv.org/pdf/2503.18813")})
+    assert read(loop, READING_LIST[0]) is None and len(loop.asked) == papers.MAX_REDIRECTS + 1
+    away = Web({"https://arxiv.org/pdf/2503.18813": moved("https://export.arxiv.org/pdf/2503.18813")})
+    assert read(away, READING_LIST[0]) is None                                              # another host, even a sister one, is refused
+    feed = Web({P0.url: moved("https://evil.example/feed.xml")})
+    assert lab_items(feed, NOW - timedelta(days=7), None, labs=(P0,)) == ([], None) and feed.asked == [P0.url]
+    assert "couldn't read Google Project Zero (ValueError)" in caplog.text
+
+
 def test_sample_quiz_is_fit_to_send():
     assert problems(SAMPLE_QUIZ) == []
 
