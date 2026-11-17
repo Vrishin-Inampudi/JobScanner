@@ -101,8 +101,9 @@ def new_session() -> requests.Session:
     s.headers["User-Agent"] = USER_AGENT
     # Sites blip (a 502 from a busy job board): retry a couple of times before giving up.
     # Every request here only reads, so retrying POST searches (Workday) is safe too.
-    retry = Retry(total=2, backoff_factor=2, status_forcelist=(500, 502, 503, 504),
-                  allowed_methods=None, raise_on_status=False)
+    # 429 (too many requests) is retried too, after a pause, rather than waiting for the next run.
+    retry = Retry(total=3, backoff_factor=3, status_forcelist=(429, 500, 502, 503, 504),
+                  allowed_methods=None, raise_on_status=False, respect_retry_after_header=False)
     adapter = HTTPAdapter(max_retries=retry, pool_maxsize=16)
     s.mount("https://", adapter)
     s.mount("http://", adapter)

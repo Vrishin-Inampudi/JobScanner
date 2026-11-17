@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -26,6 +28,9 @@ def _always(url: str) -> bool:
 # Every fetcher takes ``details(apply_url) -> bool``: whether to make the extra request for a
 # job's own page (description, exact locations). Jobs already seen don't need it again.
 
+WORKDAY_AT_ONCE = 3          # Workday requests in flight together, across all companies
+WORKDAY_PAUSE = 0.3          # seconds each one holds its place, so requests are spaced out
+_WORKDAY_TURN = threading.BoundedSemaphore(WORKDAY_AT_ONCE)
 WORKDAY_PAGE = 20          # the most Workday returns per request
 WORKDAY_MAX_PAGES = 25
 WORKDAY_SEARCH_PAGES = 5
@@ -82,8 +87,10 @@ def fetch_workday(session: requests.Session, url: str, company: str, list_key: s
     api = f"https://{host}/wday/cxs/{tenant}/{site}"
 
     def page(offset: int, facets: dict, search: str) -> dict:
-        resp = session.post(f"{api}/jobs", json={"limit": WORKDAY_PAGE, "offset": offset, "searchText": search,
-                                                 "appliedFacets": facets}, timeout=TIMEOUT)
+        with _WORKDAY_TURN:                       # Workday throttles busy callers: few at a time, spaced out
+            resp = session.post(f"{api}/jobs", json={"limit": WORKDAY_PAGE, "offset": offset, "searchText": search,
+                                                     "appliedFacets": facets}, timeout=TIMEOUT)
+            time.sleep(WORKDAY_PAUSE)
         resp.raise_for_status()
         return resp.json()
 
