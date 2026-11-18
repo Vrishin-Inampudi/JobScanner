@@ -28,7 +28,9 @@ CATCH_UP_SLACK = timedelta(hours=3)    # look back past the last run: jobright s
 MAX_CATCH_UP = timedelta(hours=24)
 DUE_SLACK = timedelta(minutes=10)      # cron jitter: a run at 4h55m still counts as 5h
 FETCH_WORKERS = 12
-TROUBLE_AFTER = timedelta(hours=24)    # a company site failing this long is mentioned in your emails
+TROUBLE_AFTER = timedelta(hours=24)    # a company site failing this long is mentioned in your emails ...
+TROUBLE_DAY = 0                        # ... on Mondays only
+TROUBLE_LINES = 3                      # more sites than this are folded into one line
 
 
 def in_quiet_hours(now: datetime, quiet: tuple[int, int] | None) -> bool:
@@ -465,15 +467,26 @@ def _sources(specs) -> str:
 
 
 def _trouble_notes(trouble: dict[str, str], specs, now: datetime) -> list[str]:
-    """One line per company site that has failed on every check for a day or more."""
+    """Company sites that have failed on every check for a day or more, mentioned on Mondays only.
+
+    A few sites get a line each; more than that are folded into one line, since a whole group
+    failing together (a host turning our requests away) isn't a list of broken addresses.
+    """
+    if now.astimezone(emailer.DISPLAY_TZ).weekday() != TROUBLE_DAY:
+        return []
     names = {s.key: s.company for s in specs if s.is_site}
+    down = sorted((datetime.fromisoformat(since), names[key]) for key, since in trouble.items()
+                  if key in names and now - datetime.fromisoformat(since) >= TROUBLE_AFTER)
+    if len(down) > TROUBLE_LINES:
+        day = down[0][0].astimezone(emailer.DISPLAY_TZ)
+        return [f"{len(down)} company career sites haven't loaded since {day:%b} {day.day} "
+                f"({', '.join(sorted(name for _, name in down))}). If they share a host, it is probably "
+                f"turning the scanner's requests away and the addresses are fine. This note appears on Mondays."]
     notes = []
-    for key, since in sorted(trouble.items()):
-        began = datetime.fromisoformat(since)
-        if key in names and now - began >= TROUBLE_AFTER:
-            day = began.astimezone(emailer.DISPLAY_TZ)
-            notes.append(f"{names[key]}'s career site hasn't loaded since {day:%b} {day.day}. "
-                         f"Its address in config.yaml may need updating.")
+    for began, name in sorted(down, key=lambda d: d[1]):
+        day = began.astimezone(emailer.DISPLAY_TZ)
+        notes.append(f"{name}'s career site hasn't loaded since {day:%b} {day.day}. "
+                     f"Its address in config.yaml may need updating.")
     return notes
 
 

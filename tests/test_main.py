@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -287,12 +288,16 @@ company_sites:
     outbox = Outbox()
     assert go(paths, outbox) == 0 and len(outbox) == 1  # a site being down is a warning, not a failed run
     assert "hasn't loaded" not in outbox[0][1]          # a brief outage isn't worth mentioning
-    # Still down a day later: the next email says so, until the site loads again.
-    later = NOW + timedelta(hours=25)
+    # Still down a day later, but the notice waits for Monday.
+    thursday = NOW + timedelta(hours=25)
+    site["cs"] = [posting("nv1", company="NVIDIA", title="Security Intern One", posted_at=thursday - timedelta(minutes=5))]
+    go(paths, outbox, now=thursday)
+    assert "hasn't loaded" not in outbox[1][1]
+    later = NOW + timedelta(days=5)                                                  # Monday: the next email says so, until the site loads again
     site["cs"] = [posting("nv2", company="NVIDIA", title="Security Intern Two", posted_at=later - timedelta(minutes=5))]
     go(paths, outbox, now=later)
-    assert "Cloudflare's career site hasn't loaded since Oct 21" in outbox[1][1]
-    assert "Cloudflare&#x27;s career site hasn&#x27;t loaded" in outbox[1][2]
+    assert "Cloudflare's career site hasn't loaded since Oct 21" in outbox[2][1]
+    assert "Cloudflare&#x27;s career site hasn&#x27;t loaded" in outbox[2][2]
     monkeypatch.setattr("jobscanner.sites.fetch_greenhouse", lambda *a, **k: [])
     go(paths, outbox, now=later + timedelta(minutes=30))
     assert json.loads(Path(paths[1]).read_text())["trouble"] == {}
@@ -524,3 +529,15 @@ def test_weekly_summary_works_without_the_tracker(site, paths):
     outbox = Outbox()
     go(paths, outbox, now=datetime(2026, 10, 25, 23, 0, tzinfo=timezone.utc))
     assert outbox[0][0] == "📊 Your week: 0 matches" and "set up the tracker" in outbox[0][2]
+
+
+def test_many_sites_down_together_are_one_line_on_mondays():
+    from jobscanner.__main__ import _trouble_notes
+    specs = [SimpleNamespace(key=f"site:{n}", company=n, is_site=True) for n in "ABCDE"]
+    began = NOW.isoformat()
+    trouble = {s.key: began for s in specs}
+    monday = NOW + timedelta(days=5)
+    notes = _trouble_notes(trouble, specs, monday)
+    assert len(notes) == 1 and notes[0].startswith("5 company career sites haven't loaded since Oct 21 (A, B, C, D, E)")
+    assert _trouble_notes(trouble, specs, NOW + timedelta(days=2)) == []              # not Monday
+    assert len(_trouble_notes({s.key: began for s in specs[:2]}, specs, monday)) == 2  # a few get a line each
