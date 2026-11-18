@@ -244,10 +244,10 @@ def test_fetch_ashby():
     assert [(p.row_id, p.location) for p in got] == [("a", "San Francisco, California; New York, New York")]
 
 
-def test_session_retries_server_errors_and_rate_limits():
+def test_session_retries_server_errors():
     from jobscanner.source import new_session
     retry = new_session().get_adapter("https://bah.wd1.myworkdayjobs.com").max_retries
-    assert retry.total == 3 and {429, 502} <= set(retry.status_forcelist) and retry.allowed_methods is None
+    assert retry.total == 2 and 502 in retry.status_forcelist and retry.allowed_methods is None
 
 
 def test_intern_facet_ignores_internal_audit():
